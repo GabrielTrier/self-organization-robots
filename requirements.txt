@@ -1,0 +1,6 @@
+﻿mesa
+numpy
+seaborn
+matplotlib
+altair
+solara
