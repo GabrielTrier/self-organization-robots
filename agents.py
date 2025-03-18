@@ -17,10 +17,52 @@ class RobotAgent(mesa.Agent):
 
     def move(self):
         possible_steps = self.model.grid.get_neighborhood(
-            self.pos, moore=True, include_center=False
-        )
-        new_position = self.random.choice(possible_steps)
-        self.model.grid.move_agent(self, new_position)
+        self.pos, moore=True, include_center=False)
+        allowed_steps = []
+        for pos in possible_steps:
+            # Récupérer le contenu de la cellule
+            cell_contents = self.model.grid.get_cell_list_contents(pos)
+            # Chercher l'agent Radioactivity dans la cellule
+            zone = None
+            for agent in cell_contents:
+                # On vérifie que l'agent est une instance de Radioactivity
+                if hasattr(agent, "zone") and agent.__class__.__name__ == "Radioactivity":
+                    zone = agent.zone
+                    break
+            # Si aucun agent Radioactivity n'est trouvé, on peut définir la zone par défaut
+            if zone is None:
+                zone_width = self.model.width // 3
+                if pos[0] < zone_width:
+                    zone = "z1"
+                elif pos[0] < 2 * zone_width:
+                    zone = "z2"
+                else:
+                    zone = "z3"
+            # Vérifier si la zone de la cellule est autorisée pour cet agent
+            if zone in self.allowed_zones:
+                allowed_steps.append(pos)
+        # Effectuer le déplacement vers une case autorisée si disponible
+        if allowed_steps:
+            new_position = self.random.choice(allowed_steps)
+            self.model.grid.move_agent(self, new_position)
 
     def step (self):
         self.move()
+
+class GreenRobot(RobotAgent):
+    def __init__(self, model,pos):
+        super().__init__(model)
+        self.type = "green"
+        self.allowed_zones = ["z1"]
+
+class YellowRobot(RobotAgent):
+    def __init__(self, model, pos):
+        super().__init__(model)
+        self.type = "yellow" 
+        self.allowed_zones = ["z1", "z2"]
+
+class RedRobot(RobotAgent):
+    def __init__(self, model, pos):
+        super().__init__(model)
+        self.type = "red"  
+        self.allowed_zones = ["z1", "z2", "z3"]

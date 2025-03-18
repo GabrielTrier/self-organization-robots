@@ -34,3 +34,4 @@ class Waste(mesa.Agent):
     def __init__(self, model, waste_type):
         super().__init__(model)
         self.waste_type = waste_type  # 'green', 'yellow', or 'red'
+
