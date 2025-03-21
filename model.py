@@ -85,7 +85,6 @@ class RobotModel(mesa.Model):
             self.grid.place_agent(robot, (x, y))
             self.robots.append(robot)
 
-
     def add_initial_waste(self):
         zone_width = self.width // 3
         
@@ -109,6 +108,49 @@ class RobotModel(mesa.Model):
             y = self.random.randrange(0, self.height)
             waste = Waste(self, "red")
             self.grid.place_agent(waste, (x, y))
+
+    def do(self, agent, action):
+        if action["action"] == "move":
+            # On utilise la méthode move déjà définie dans l'agent
+            agent.move()
+
+        elif action["action"] == "move_east":
+            # Exemple : déplacement vers l'est, tout en vérifiant les contraintes de zones
+            x, y = agent.pos
+            new_pos = (x + 1, y)
+            # On vérifie que la case existe dans la grille et qu'elle est autorisée
+            if new_pos[0] < self.width:
+                cell_contents = self.grid.get_cell_list_contents(new_pos)
+                zone = None
+                for obj in cell_contents:
+                    if hasattr(obj, "zone") and obj.__class__.__name__ == "Radioactivity":
+                        zone = obj.zone
+                        break
+                if zone in agent.allowed_zones:
+                    self.grid.move_agent(agent, new_pos)
+
+        elif action["action"] == "pickup":
+            current_cell = self.grid.get_cell_list_contents(agent.pos)
+            for obj in current_cell:
+                if hasattr(obj, "waste_type") and obj.waste_type == action["waste"]:
+                    # Ramasser le déchet : on l'ajoute à l'inventaire et on le retire de la grille
+                    agent.inventory.append(obj.waste_type)
+                    self.grid.remove_agent(obj)
+                    break
+
+        elif action["action"] == "transform":
+            # Transformer 2 déchets green en 1 déchet yellow
+            if action["from"] == "green" and action["to"] == "yellow":
+                green_waste = [w for w in agent.inventory if w == "green"]
+                if len(green_waste) >= 2:
+                    # On retire deux déchets green
+                    for _ in range(2):
+                        agent.inventory.remove("green")
+                    # Et on ajoute un déchet yellow
+                    agent.inventory.append("yellow")
+
+        return self.grid.get_cell_list_contents(agent.pos)
+
 
     def step(self):
         # Call step on each robot agent directly instead of using agents.shuffle_do
