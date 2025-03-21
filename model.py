@@ -27,7 +27,7 @@ class RobotModel(mesa.Model):
         self.n_green = n_green
         self.n_yellow = n_yellow
         self.n_red = n_red
-        self.grid = mesa.space.MultiGrid(width, height, True)
+        self.grid = mesa.space.MultiGrid(width, height, False)
         self.robots = []  #liste to store agents pas sur !
         self.step_count = 0  #Add step counter (temporaire)
         

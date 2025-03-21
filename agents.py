@@ -17,7 +17,7 @@ class RobotAgent(mesa.Agent):
 
     def move(self):
         possible_steps = self.model.grid.get_neighborhood(
-        self.pos, moore=True, include_center=False)
+        self.pos, moore=False, include_center=False)
         allowed_steps = []
         for pos in possible_steps:
             # Récupérer le contenu de la cellule
