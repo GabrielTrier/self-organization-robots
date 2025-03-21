@@ -20,10 +20,10 @@ from agents import GreenRobot, YellowRobot, RedRobot
 
 # Fonction pour afficher les robots sur la grille
 def agent_portrayal(agent):
-    portrayal = {"color": "white"}
+    portrayal = {"color": "white","marker":"o","zorder":1}
 
     if isinstance(agent, GreenRobot):
-        portrayal["color"] = "purple" 
+        portrayal["color"] = "blue" 
     elif isinstance(agent, YellowRobot):
         portrayal["color"] = "yellow"
     elif isinstance(agent, RedRobot):
@@ -31,8 +31,9 @@ def agent_portrayal(agent):
 
     elif isinstance(agent, Waste):
         portrayal["size"] = 20
+        portrayal["marker"] = "x"
         if agent.waste_type == "green":
-            portrayal["color"] = "purple" 
+            portrayal["color"] = "blue" 
         elif agent.waste_type == "yellow":
             portrayal["color"] = "gold"
         else:  # red waste
@@ -40,13 +41,25 @@ def agent_portrayal(agent):
 
     elif isinstance(agent, WasteDisposal):
         portrayal["color"] = "black"
-
+        portrayal["marker"] = "s"
+        portrayal["size"] = 700
+        portrayal["zorder"] = 0
+    elif isinstance(agent, Radioactivity):
+        portrayal["marker"] = "s"
+        portrayal["zorder"] = 0
+        portrayal["size"] = 700
+        if agent.zone == "z1":
+            portrayal["color"] = "#5768D1"
+        elif agent.zone == "z2":
+            portrayal["color"] = "#E8E246"
+        else:  
+            portrayal["color"] = "#E97475"
     return portrayal
 
 #Composant Histogramme : Affiche l'évolution des étapes de la simulation
 @solara.component
 def StepHistogram(model):
-    update_counter.get()  # Mise à jour automatique
+    update_counter.get()
     fig = Figure()
     ax = fig.subplots()
 
