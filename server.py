@@ -25,7 +25,7 @@ def agent_portrayal(agent):
     if isinstance(agent, GreenRobot):
         portrayal["color"] = "blue" 
     elif isinstance(agent, YellowRobot):
-        portrayal["color"] = "yellow"
+        portrayal["color"] = "gold"
     elif isinstance(agent, RedRobot):
         portrayal["color"] = "red" 
 
@@ -49,11 +49,12 @@ def agent_portrayal(agent):
         portrayal["zorder"] = 0
         portrayal["size"] = 700
         if agent.zone == "z1":
-            portrayal["color"] = "#5768D1"
+            portrayal["color"] = "#B8C3F5"  
         elif agent.zone == "z2":
-            portrayal["color"] = "#E8E246"
+            portrayal["color"] = "#FFF9A3"  
         else:  
-            portrayal["color"] = "#E97475"
+            portrayal["color"] = "#FFADAD"  
+            
     return portrayal
 
 #Composant Histogramme : Affiche l'évolution des étapes de la simulation
