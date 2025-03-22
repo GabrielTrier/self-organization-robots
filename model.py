@@ -16,7 +16,7 @@ from objects import Radioactivity, WasteDisposal, Waste
 from agents import GreenRobot, YellowRobot, RedRobot
 
 class RobotModel(mesa.Model):
-    def __init__(self, width=15, height=9, green_waste=1, yellow_waste=1, red_waste=1,
+    def __init__(self, width=15, height=9, green_waste=4, yellow_waste=4, red_waste=4,
                  n_green=1, n_yellow=1, n_red=1):
         super().__init__()
         self.width = width
@@ -111,14 +111,11 @@ class RobotModel(mesa.Model):
 
     def do(self, agent, action):
         if action["action"] == "move":
-            # On utilise la méthode move déjà définie dans l'agent
             agent.move()
 
         elif action["action"] == "move_east":
-            # Exemple : déplacement vers l'est, tout en vérifiant les contraintes de zones
             x, y = agent.pos
             new_pos = (x + 1, y)
-            # On vérifie que la case existe dans la grille et qu'elle est autorisée
             if new_pos[0] < self.width:
                 cell_contents = self.grid.get_cell_list_contents(new_pos)
                 zone = None
@@ -129,31 +126,64 @@ class RobotModel(mesa.Model):
                 if zone in agent.allowed_zones:
                     self.grid.move_agent(agent, new_pos)
 
+        elif action["action"] == "move_vertical":
+            x, y = agent.pos
+            possible_positions = []
+            if y - 1 >= 0:
+                possible_positions.append((x, y - 1))
+            if y + 1 < self.height:
+                possible_positions.append((x, y + 1))
+            for new_pos in possible_positions:
+                cell_contents = self.grid.get_cell_list_contents(new_pos)
+                if not any(hasattr(obj, "waste_type") for obj in cell_contents) and not any(isinstance(obj, RobotAgent) for obj in cell_contents):
+                    self.grid.move_agent(agent, new_pos)
+                    break
+
         elif action["action"] == "pickup":
             current_cell = self.grid.get_cell_list_contents(agent.pos)
             for obj in current_cell:
                 if hasattr(obj, "waste_type") and obj.waste_type == action["waste"]:
-                    # Ramasser le déchet : on l'ajoute à l'inventaire et on le retire de la grille
                     agent.inventory.append(obj.waste_type)
                     self.grid.remove_agent(obj)
                     break
 
         elif action["action"] == "transform":
-            # Transformer 2 déchets green en 1 déchet yellow
+            # 2 green -> 1 yellow
             if action["from"] == "green" and action["to"] == "yellow":
                 green_waste = [w for w in agent.inventory if w == "green"]
                 if len(green_waste) >= 2:
-                    # On retire deux déchets green
                     for _ in range(2):
                         agent.inventory.remove("green")
-                    # Et on ajoute un déchet yellow
                     agent.inventory.append("yellow")
+                    agent.hasTransformed = True # Empeche de recolter d'autres dechets
+
+            # 2 yellow -> 1 red
+            elif action["from"] == "yellow" and action["to"] == "red":
+                yellow_waste = [w for w in agent.inventory if w == "yellow"]
+                if len(yellow_waste) >= 2:
+                    for _ in range(2):
+                        agent.inventory.remove("yellow")
+                    agent.inventory.append("red")
+                    agent.hasTransformed = True
+
+        elif action["action"] == "drop":
+            cell_contents = self.grid.get_cell_list_contents(agent.pos)
+            if any(hasattr(obj, "waste_type") for obj in cell_contents):
+                return cell_contents
+            
+            #si dépot dans zone de déchets
+            if any(hasattr(obj, "zone") and obj.zone == "waste_zone" for obj in cell_contents):
+                agent.inventory.remove(action["waste"])
+            else:
+                waste = Waste(self, action["waste"])
+                self.grid.place_agent(waste, agent.pos)
+                agent.inventory.remove(action["waste"])
+            agent.hasTransformed = False
 
         return self.grid.get_cell_list_contents(agent.pos)
 
 
     def step(self):
-        # Call step on each robot agent directly instead of using agents.shuffle_do
         for robot in self.robots:
             robot.step()
         

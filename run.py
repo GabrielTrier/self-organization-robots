@@ -11,16 +11,23 @@ Groupe 21
 
 from model import RobotModel
 
-# Paramètres de la simulation
-NUM_AGENTS = 5
+#Paramètres de la simulation
 GRID_WIDTH = 15
 GRID_HEIGHT = 9
-STEPS = 20
+GREEN_WASTE = 4
+YELLOW_WASTE = 4
+RED_WASTE = 4
+N_GREEN = 1
+N_YELLOW = 1
+N_RED = 1
 
-# Initialiser le modèle
-model = RobotModel(NUM_AGENTS, GRID_WIDTH, GRID_HEIGHT)
-
-# Lancer la simulation
-for _ in range(STEPS):
-    model.step()
-    print(f"Étape {_ + 1} exécutée")
+model = RobotModel(
+    width=GRID_WIDTH,
+    height=GRID_HEIGHT,
+    green_waste=GREEN_WASTE,
+    yellow_waste=YELLOW_WASTE,
+    red_waste=RED_WASTE,
+    n_green=N_GREEN,
+    n_yellow=N_YELLOW,
+    n_red=N_RED,
+)

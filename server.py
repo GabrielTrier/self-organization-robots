@@ -9,15 +9,13 @@ Groupe 21
 @date 11/03/2025
 '''
 
-import mesa
 import solara
 from matplotlib.figure import Figure
 from mesa.visualization import SolaraViz, make_plot_component, make_space_component
 from mesa.visualization.utils import update_counter
-from model import RobotModel  
 from objects import Radioactivity, WasteDisposal, Waste
 from agents import GreenRobot, YellowRobot, RedRobot
-
+from run import model
 # Fonction pour afficher les robots sur la grille
 def agent_portrayal(agent):
     portrayal = {"color": "white","marker":"o","zorder":1}
@@ -124,15 +122,14 @@ model_params = {
     },
 }
 
-model1 = RobotModel(width=15, height=9, green_waste=1, yellow_waste=1, red_waste=1,
-                 n_green=1, n_yellow=1, n_red=1)
+
 
 # Création des composants d'affichage
 SpaceGraph = make_space_component(agent_portrayal)
 StepPlot = make_plot_component("StepHistogram")  
 # Création du Dashboard Solara
 page = SolaraViz(
-    model1,
+    model,
     components=[SpaceGraph, StepHistogram], 
     model_params=model_params,
     name="Simulation de Robots",
