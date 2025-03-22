@@ -30,12 +30,21 @@ class RobotModel(mesa.Model):
         self.grid = mesa.space.MultiGrid(width, height, False)
         self.robots = []  #liste to store agents pas sur !
         self.step_count = 0  #Add step counter (temporaire)
+        self.deposition_step = None
         
         self.setup_zones()
         self.add_initial_waste()
         self.create_robots()
 
-        self.datacollector = DataCollector( model_reporters={"Step": lambda m: m.step_count})
+        self.datacollector = DataCollector(
+            model_reporters={
+                "Step": lambda m: m.step_count,
+                "GreenDistance": lambda m: sum(r.distance for r in m.robots if r.type == "green"),
+                "YellowDistance": lambda m: sum(r.distance for r in m.robots if r.type == "yellow"),
+                "RedDistance": lambda m: sum(r.distance for r in m.robots if r.type == "red"),
+                "RedDepositionStep": lambda m: m.step_count if all(not isinstance(a, Waste) or a.waste_type != "red" for a in m.grid.agents) else None
+            }
+        )
         # Initial data collection
         self.datacollector.collect(self)
     
@@ -111,6 +120,7 @@ class RobotModel(mesa.Model):
 
     def do(self, agent, action):
         if action["action"] == "move":
+            agent.distance += 1
             agent.move()
 
         elif action["action"] == "move_east":
@@ -124,6 +134,7 @@ class RobotModel(mesa.Model):
                         zone = obj.zone
                         break
                 if zone in agent.allowed_zones:
+                    agent.distance += 1
                     self.grid.move_agent(agent, new_pos)
 
         elif action["action"] == "move_vertical":
@@ -136,6 +147,7 @@ class RobotModel(mesa.Model):
             for new_pos in possible_positions:
                 cell_contents = self.grid.get_cell_list_contents(new_pos)
                 if not any(hasattr(obj, "waste_type") for obj in cell_contents) and not any(isinstance(obj, RobotAgent) for obj in cell_contents):
+                    agent.distance += 1
                     self.grid.move_agent(agent, new_pos)
                     break
 
@@ -186,7 +198,7 @@ class RobotModel(mesa.Model):
     def step(self):
         for robot in self.robots:
             robot.step()
-        
+
         #Increment step counter and collect data
         self.step_count += 1
         self.datacollector.collect(self)

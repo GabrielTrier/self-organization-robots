@@ -16,7 +16,7 @@ from mesa.visualization.utils import update_counter
 from objects import Radioactivity, WasteDisposal, Waste
 from agents import GreenRobot, YellowRobot, RedRobot
 from run import model
-# Fonction pour afficher les robots sur la grille
+
 def agent_portrayal(agent):
     portrayal = {"color": "white","marker":"o","zorder":1}
 
@@ -74,6 +74,24 @@ def StepHistogram(model):
     ax.set_ylabel("Nombre d'étapes")
     solara.FigureMatplotlib(fig)
 
+@solara.component
+def Metrics_Text(model):
+    update_counter.get()
+    df = model.datacollector.get_model_vars_dataframe()
+    green_distance = df["GreenDistance"].iloc[-1] if not df.empty else 0
+    yellow_distance = df["YellowDistance"].iloc[-1] if not df.empty else 0
+    red_distance = df["RedDistance"].iloc[-1] if not df.empty else 0
+    nbr_steps_to_clean = df["RedDepositionStep"].iloc[-1] if not df.empty else 0
+    solara.Markdown(f"""
+    ### Métriques de la simulation
+    **Distances parcourues (cumul) :**  
+    - Green Distance : {green_distance}  
+    - Yellow Distance : {yellow_distance}  
+    - Red Distance : {red_distance} 
+
+    **Nombre d'étapes avant nettoyage complet :**
+    {nbr_steps_to_clean}""")
+
 # Paramètres de simulation interactifs
 model_params = {
     "width": 15,
@@ -123,14 +141,15 @@ model_params = {
 }
 
 
-
 # Création des composants d'affichage
 SpaceGraph = make_space_component(agent_portrayal)
-StepPlot = make_plot_component("StepHistogram")  
+StepHistogramComponent = make_plot_component("StepHistogram")
+DistancePlotComponent = make_plot_component("Metrics_Text")
+
 # Création du Dashboard Solara
 page = SolaraViz(
     model,
-    components=[SpaceGraph, StepHistogram], 
+    components=[SpaceGraph, StepHistogram, Metrics_Text],
     model_params=model_params,
     name="Simulation de Robots",
 )

@@ -16,6 +16,7 @@ class RobotAgent(mesa.Agent):
         super().__init__(model)
         self.knowledge = {} 
         self.inventory = []
+        self.distance = 0
 
     def move(self):
         possible_steps = self.model.grid.get_neighborhood(
@@ -58,7 +59,7 @@ class RobotAgent(mesa.Agent):
         return {"action": "move"}
 
     def step_agent(self):
-        # Phase de perception : on met à jour knowledge avec les percepts, l'inventaire et la position
+        #Mise à jour knowledge avec les percepts, l'inventaire et la position
         percepts = self.get_percepts()
         zone_width = self.model.width // 3
         self.knowledge = {
@@ -67,9 +68,9 @@ class RobotAgent(mesa.Agent):
             "pos": self.pos,
             "zone_width": zone_width
         }
-        #La phase de délibération n'utilise QUE self.knowledge
+        #Phase de délibération n'utilise QUE self.knowledge
         action = self.deliberate(self.knowledge)
-        #La phase d'action : le modèle exécute l'action et renvoie les percepts mis à jour
+        #modèle exécute l'action et renvoie les percepts mis à jour
         new_percepts = self.model.do(self, action)
         self.knowledge["last_percepts"] = new_percepts
 
