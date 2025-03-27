@@ -10,6 +10,7 @@ Groupe 21
 '''
 
 import mesa
+from objects import Waste
 
 class RobotAgent(mesa.Agent):
     def __init__(self, model):
@@ -53,14 +54,27 @@ class RobotAgent(mesa.Agent):
         neighbors = self.model.grid.get_neighborhood(self.pos, moore=False, include_center=True)
         for pos in neighbors:
             percepts[pos] = self.model.grid.get_cell_list_contents(pos)
+
+        print(f"[DEBUG] Percepts de l'agent {self.unique_id} à {self.pos} : {percepts}")
+
         return percepts
 
     def deliberate(self, knowledge):
-        return {"action": "move"}
+        percepts = knowledge["percepts"]
+        
+        # Rechercher les cases contenant un déchet
+        for pos, agents in percepts.items():
+            for agent in agents:
+                if agent.__class__.__name__ == "Waste":  # Vérifie si c'est un déchet
+                    return {"action": "move", "target": pos}  # Aller vers cette case
 
+        # Si aucun déchet détecté, continuer avec le comportement normal
+        return {"action": "move"}
+    
     def step_agent(self):
-        #Mise à jour knowledge avec les percepts, l'inventaire et la position
         percepts = self.get_percepts()
+        print(f"[DEBUG] L'agent {self.unique_id} perçoit : {percepts}")
+
         zone_width = self.model.width // 3
         self.knowledge = {
             "percepts": percepts,
@@ -68,11 +82,28 @@ class RobotAgent(mesa.Agent):
             "pos": self.pos,
             "zone_width": zone_width
         }
-        #Phase de délibération n'utilise QUE self.knowledge
+
         action = self.deliberate(self.knowledge)
-        #modèle exécute l'action et renvoie les percepts mis à jour
-        new_percepts = self.model.do(self, action)
-        self.knowledge["last_percepts"] = new_percepts
+        print(f"[DEBUG] Action décidée : {action}")
+
+        new_percepts = None  # Initialisation pour éviter l'erreur
+
+        if action["action"] == "move" and "target" in action:
+            print(f"[DEBUG] L'agent {self.unique_id} se déplace vers {action['target']}")
+            self.model.grid.move_agent(self, action["target"])
+            self.knowledge["last_percepts"] = self.get_percepts()  # Mise à jour immédiate
+        else:
+            new_percepts = self.model.do(self, action)
+            self.knowledge["last_percepts"] = new_percepts
+
+        if action["action"] == "drop":
+            self.hasTransformed = False  # Permet au robot de refaire une transformation après dépôt
+            print(f"[DEBUG] L'agent {self.unique_id} a déposé un déchet et peut transformer à nouveau.")
+
+
+        # Si new_percepts n'a pas été mis à jour dans le if, lui donner une valeur par défaut
+        if new_percepts is None:
+            new_percepts = self.get_percepts()
 
 class GreenRobot(RobotAgent):
     def __init__(self, model,pos):
@@ -82,20 +113,34 @@ class GreenRobot(RobotAgent):
         self.hasTransformed = False
 
     def deliberate(self, knowledge):
-        current_cell = knowledge["percepts"] [knowledge["pos"]]
+        current_cell = knowledge["percepts"][knowledge["pos"]]
         inventory = knowledge["inventory"]
         pos = knowledge["pos"]
         zone_width = knowledge["zone_width"]
 
-        if not self.hasTransformed:
-            green_present = any(hasattr(obj, "waste_type") and obj.waste_type == "green" for obj in current_cell)
-            if len([w for w in inventory if w == "green"]) < 2 and green_present:
+        waste_in_cell = any(isinstance(obj, Waste) for obj in current_cell)
+
+        # Vérifier s'il y a un déchet adjacent
+        for neighbor_pos, agents in knowledge["percepts"].items():
+            for agent in agents:
+                if isinstance(agent, Waste) and getattr(agent, "waste_type", None) == "green" and (not waste_in_cell) and (len([w for w in inventory if w == "green"]) < 2 and len([w for w in inventory if w == "yellow"]) == 0):  # Si un déchet est trouvé
+                    print(f"[DEBUG] Déchet détecté à {neighbor_pos}, déplacement prioritaire.")
+                    return {"action": "move", "target": neighbor_pos}  # Aller sur la case du déchet
+
+        # Vérifier si l'agent est déjà sur une case contenant un déchet
+        if waste_in_cell:
+            green_waste = any(hasattr(obj, "waste_type") and obj.waste_type == "green" for obj in current_cell)
+            if green_waste and len([w for w in inventory if w == "green"]) < 2:
                 return {"action": "pickup", "waste": "green"}
-            elif len([w for w in inventory if w == "green"]) >= 2:
+
+        # Transformation si possible
+        if not self.hasTransformed:
+            if len([w for w in inventory if w == "green"]) >= 2:
+                self.hasTransformed = True  # Empêche une nouvelle transformation
                 return {"action": "transform", "from": "green", "to": "yellow"}
 
+
         if self.hasTransformed or len([w for w in inventory if w == "yellow"]) == 1:
-            waste_in_cell = any(hasattr(obj, "waste_type") for obj in current_cell)
             if pos[0] == zone_width - 1:  # À l'extrémité de z1
                 if not waste_in_cell:
                     return {"action": "drop", "waste": "yellow"}
@@ -103,8 +148,8 @@ class GreenRobot(RobotAgent):
                     return {"action": "move_vertical"}
             else:
                 return {"action": "move_east"}
-            
-        return {"action": "move"}
+
+        return {"action": "move"}  # Si rien d'autre à faire, continuer à bouger
         
 class YellowRobot(RobotAgent):
     def __init__(self, model, pos):
@@ -112,32 +157,46 @@ class YellowRobot(RobotAgent):
         self.type = "yellow" 
         self.allowed_zones = ["z1", "z2"]
         self.hasTransformed = False
-
+    
     def deliberate(self, knowledge):
         current_cell = knowledge["percepts"][knowledge["pos"]]
         inventory = knowledge["inventory"]
         pos = knowledge["pos"]
         zone_width = knowledge["zone_width"]
 
-        if not self.hasTransformed:
-            yellow_present = any(hasattr(obj, "waste_type") and obj.waste_type == "yellow" for obj in current_cell)
-            
-            if len([w for w in inventory if w == "yellow"]) < 2 and yellow_present:
+        waste_in_cell = any(isinstance(obj, Waste) for obj in current_cell)
+
+        # Vérifier s'il y a un déchet adjacent
+        for neighbor_pos, agents in knowledge["percepts"].items():
+            for agent in agents:
+                if isinstance(agent, Waste) and getattr(agent, "waste_type", None) == "yellow" \
+                        and (not waste_in_cell) and (len([w for w in inventory if w == "yellow"]) < 2 and len([w for w in inventory if w == "red"]) == 0):
+                    print(f"[DEBUG] Déchet détecté à {neighbor_pos}, déplacement prioritaire.")
+                    return {"action": "move", "target": neighbor_pos}  # Aller sur la case du déchet
+
+        # Vérifier si l'agent est déjà sur une case contenant un déchet
+        if waste_in_cell:
+            yellow_waste = any(hasattr(obj, "waste_type") and obj.waste_type == "yellow" for obj in current_cell)
+            if yellow_waste and len([w for w in inventory if w == "yellow"]) < 2:
                 return {"action": "pickup", "waste": "yellow"}
-            
-            elif len([w for w in inventory if w == "yellow"]) >= 2:
+
+        # Transformation si possible
+        if not self.hasTransformed:
+            if len([w for w in inventory if w == "yellow"]) >= 2:
+                self.hasTransformed = True  # Empêche une nouvelle transformation
                 return {"action": "transform", "from": "yellow", "to": "red"}
-        
+
+        # Dépôt si transformé ou si un déchet rouge est dans l'inventaire
         if self.hasTransformed or len([w for w in inventory if w == "red"]) == 1:
-            if pos[0] == 2 * zone_width - 1:
-                waste_in_cell = any(hasattr(obj, "waste_type") for obj in current_cell)
+            if pos[0] == (2*zone_width) - 1:  # À l'extrémité de la zone
                 if not waste_in_cell:
                     return {"action": "drop", "waste": "red"}
                 else:
                     return {"action": "move_vertical"}
             else:
                 return {"action": "move_east"}
-        return {"action": "move"}
+
+        return {"action": "move"}  # Si rien d'autre à faire, continuer à bouger
         
 class RedRobot(RobotAgent):
     def __init__(self, model, pos):
@@ -148,6 +207,15 @@ class RedRobot(RobotAgent):
     def deliberate(self, knowledge):
         current_cell = knowledge["percepts"][knowledge["pos"]]
         inventory = knowledge["inventory"]
+
+        waste_in_cell = any(isinstance(obj, Waste) for obj in current_cell)
+
+        for neighbor_pos, agents in knowledge["percepts"].items():
+            for agent in agents:
+                if isinstance(agent, Waste) and getattr(agent, "waste_type", None) == "red" \
+                        and (not waste_in_cell) and (len([w for w in inventory if w == "red"]) < 2 and len([w for w in inventory if w == "red"]) == 0):
+                    print(f"[DEBUG] Déchet détecté à {neighbor_pos}, déplacement prioritaire.")
+                    return {"action": "move", "target": neighbor_pos}  # Aller sur la case du déchet
 
         if len([w for w in inventory if w == "red"]) < 1:
             red_present = any(hasattr(obj, "waste_type") and obj.waste_type == "red" for obj in current_cell)
