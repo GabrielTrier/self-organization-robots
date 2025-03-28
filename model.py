@@ -28,9 +28,10 @@ class RobotModel(mesa.Model):
         self.n_yellow = n_yellow
         self.n_red = n_red
         self.grid = mesa.space.MultiGrid(width, height, False)
-        self.robots = []  #liste to store agents pas sur !
-        self.step_count = 0  #Add step counter (temporaire)
+        self.robots = []  
+        self.step_count = 0  #Add step counter 
         self.deposition_step = None
+        self.running = True  #Attribut standard de Mesa pour contrôler l'exécution
         
         self.setup_zones()
         self.add_initial_waste()
@@ -42,7 +43,7 @@ class RobotModel(mesa.Model):
                 "GreenDistance": lambda m: sum(r.distance for r in m.robots if r.type == "green"),
                 "YellowDistance": lambda m: sum(r.distance for r in m.robots if r.type == "yellow"),
                 "RedDistance": lambda m: sum(r.distance for r in m.robots if r.type == "red"),
-                "RedDepositionStep": lambda m: m.step_count if all(not isinstance(a, Waste) or a.waste_type != "red" for a in m.grid.agents) else None
+                "RedDepositionStep": lambda m: m.deposition_step if m.deposition_step is not None else None
             }
         )
         # Initial data collection
@@ -121,7 +122,19 @@ class RobotModel(mesa.Model):
     def do(self, agent, action):
         if action["action"] == "move":
             agent.distance += 1
-            agent.move()
+            if "target" in action:
+                # Move agent directly to target position if provided
+                target_pos = action["target"]
+                cell_contents = self.grid.get_cell_list_contents(target_pos)
+                zone = None
+                for obj in cell_contents:
+                    if hasattr(obj, "zone") and obj.__class__.__name__ == "Radioactivity":
+                        zone = obj.zone
+                        break
+                if zone in agent.allowed_zones:
+                    self.grid.move_agent(agent, target_pos)
+            else:
+                agent.move()
 
         elif action["action"] == "move_east":
             x, y = agent.pos
@@ -196,10 +209,24 @@ class RobotModel(mesa.Model):
 
 
     def step(self):
-        for robot in self.robots:
+        # STOP Si 
+        # aucun déchet rouge sur la grille
+        no_red_waste_on_grid = all(not isinstance(a, Waste) or a.waste_type != "red" for a in self.grid.agents)
+        # + aucun déchet rouge dans l'inventaire des robots
+        no_red_waste_in_inventory = all("red" not in robot.inventory for robot in self.robots)
+        
+        if no_red_waste_on_grid and no_red_waste_in_inventory:
+            if self.deposition_step is None:  
+                self.deposition_step = self.step_count  
+                print(f"Tous les déchets rouges ont été définitivement éliminés à l'étape {self.deposition_step}")
+                self.datacollector.collect(self)
+            self.running = False  #Stop la simulation       
+            return  
+
+        for robot in self.robots:        
             robot.step()
 
-        #Increment step counter and collect data
+        # Increment step counter and collect data
         self.step_count += 1
         self.datacollector.collect(self)
         print(f"Step {self.step_count} completed")

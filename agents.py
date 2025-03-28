@@ -72,38 +72,18 @@ class RobotAgent(mesa.Agent):
         return {"action": "move"}
     
     def step_agent(self):
+        # Mise à jour knowledge avec les percepts, l'inventaire et la position
         percepts = self.get_percepts()
-        print(f"[DEBUG] L'agent {self.unique_id} perçoit : {percepts}")
-
         zone_width = self.model.width // 3
         self.knowledge = {
             "percepts": percepts,
             "inventory": self.inventory.copy(),
             "pos": self.pos,
-            "zone_width": zone_width
+            "zone_width": zone_width,
         }
-
         action = self.deliberate(self.knowledge)
-        print(f"[DEBUG] Action décidée : {action}")
-
-        new_percepts = None  # Initialisation pour éviter l'erreur
-
-        if action["action"] == "move" and "target" in action:
-            print(f"[DEBUG] L'agent {self.unique_id} se déplace vers {action['target']}")
-            self.model.grid.move_agent(self, action["target"])
-            self.knowledge["last_percepts"] = self.get_percepts()  # Mise à jour immédiate
-        else:
-            new_percepts = self.model.do(self, action)
-            self.knowledge["last_percepts"] = new_percepts
-
-        if action["action"] == "drop":
-            self.hasTransformed = False  # Permet au robot de refaire une transformation après dépôt
-            print(f"[DEBUG] L'agent {self.unique_id} a déposé un déchet et peut transformer à nouveau.")
-
-
-        # Si new_percepts n'a pas été mis à jour dans le if, lui donner une valeur par défaut
-        if new_percepts is None:
-            new_percepts = self.get_percepts()
+        new_percepts = self.model.do(self, action)
+        self.knowledge["last_percepts"] = new_percepts
 
 class GreenRobot(RobotAgent):
     def __init__(self, model,pos):
