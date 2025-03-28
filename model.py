@@ -209,16 +209,14 @@ class RobotModel(mesa.Model):
 
 
     def step(self):
-        # STOP Si 
-        # aucun déchet rouge sur la grille
-        no_red_waste_on_grid = all(not isinstance(a, Waste) or a.waste_type != "red" for a in self.grid.agents)
-        # + aucun déchet rouge dans l'inventaire des robots
-        no_red_waste_in_inventory = all("red" not in robot.inventory for robot in self.robots)
+        # STOp si tous les déchets ont été éliminés (grille et inventaire)
+        no_waste_on_grid = all(not isinstance(a, Waste) for a in self.grid.agents)
+        no_waste_in_inventory = all(len(robot.inventory) == 0 for robot in self.robots)
         
-        if no_red_waste_on_grid and no_red_waste_in_inventory:
+        if no_waste_on_grid and no_waste_in_inventory:
             if self.deposition_step is None:  
                 self.deposition_step = self.step_count  
-                print(f"Tous les déchets rouges ont été définitivement éliminés à l'étape {self.deposition_step}")
+                print(f"Tous les déchets ont été définitivement éliminés à l'étape {self.deposition_step}")
                 self.datacollector.collect(self)
             self.running = False  #Stop la simulation       
             return  
