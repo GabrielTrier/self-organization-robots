@@ -18,33 +18,42 @@ class RobotAgent(mesa.Agent):
         self.knowledge = {} 
         self.inventory = []
         self.distance = 0
+        self.visited_positions = set()
 
     def move(self):
         possible_steps = self.model.grid.get_neighborhood(
-        self.pos, moore=False, include_center=False)
+            self.pos, moore=False, include_center=False)
         allowed_steps = []
+
         for pos in possible_steps:
             cell_contents = self.model.grid.get_cell_list_contents(pos)
 
-            if any(isinstance(obj, RobotAgent) for obj in cell_contents): #éviter collision
+            if any(isinstance(obj, RobotAgent) for obj in cell_contents):
                 continue
 
-            #Chercher l'agent Radioactivity dans la cellule
             zone = None
             for agent in cell_contents:
-                #On vérifie que l'agent est une instance de Radioactivity
                 if hasattr(agent, "zone") and agent.__class__.__name__ == "Radioactivity":
                     zone = agent.zone
                     break
-            
-            #Vérifier si la zone de la cellule est autorisée pour cet agent
+
             if zone in self.allowed_zones:
                 allowed_steps.append(pos)
-                
-        #Effectuer le déplacement vers une case autorisée si disponible
-        if allowed_steps:
+
+        # Prioriser les cases non visitées
+        unvisited_steps = [step for step in allowed_steps if step not in self.visited_positions]
+        print(f'DEBUG allowed_steps : {allowed_steps}')
+        print(f'DEBUG non_visited : {unvisited_steps}')
+
+        if unvisited_steps:
+            new_position = self.random.choice(unvisited_steps)
+        elif allowed_steps:
             new_position = self.random.choice(allowed_steps)
-            self.model.grid.move_agent(self, new_position)
+        else:
+            return  # Aucun déplacement possible
+
+        self.model.grid.move_agent(self, new_position)
+
 
     def step(self):
         self.step_agent()
@@ -54,10 +63,12 @@ class RobotAgent(mesa.Agent):
         neighbors = self.model.grid.get_neighborhood(self.pos, moore=False, include_center=True)
         for pos in neighbors:
             percepts[pos] = self.model.grid.get_cell_list_contents(pos)
+            self.visited_positions.add(self.pos)
 
-        print(f"[DEBUG] Percepts de l'agent {self.unique_id} à {self.pos} : {percepts}")
-
+        #print(f"[DEBUG] Percepts de l'agent {self.unique_id} à {self.pos} : {percepts}")
+        print(f"[DEBUG] Mémoire de l'agent {self.unique_id} : {self.visited_positions}")
         return percepts
+
 
     def deliberate(self, knowledge):
         percepts = knowledge["percepts"]
