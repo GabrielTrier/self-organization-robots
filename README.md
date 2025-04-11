@@ -102,3 +102,14 @@ Actuellement les robots ne coordonnent pas leurs actions. Ainsi, si il y a plusi
 - Les robots partagent leurs connaissances. 
 - Un robot 'chef' qui coordonne les actions des autres robots.
 - Optimiser les déplacements des robots pour minimiser la distance parcourue si ils ont connaissance de la position des déchets. 
+
+## Startégie de collecte
+
+Diviser chaque zone en plusieurs sous-zones et assigner un robot à chaque sous-zone. Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets. On evite les cases déjà visitées par un autre robot.
+- Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets.
+- Une fois qu'un robot a collecté un déchet, il doit se déplacer vers la zone de dépôt pour le déposer.
+- Une fois qu'un robot a déposé un déchet, il doit se déplacer vers sa sous-zone pour continuer à collecter des déchets.
+- Si un robot a visité toutes les cases de sa sous-zone, il le communique aux autres robots. 
+- Une fois toutes les cases de la sous-zone visitées, le robot avec l'id le plus bas doit se déplacer vers la colonne de droite pour transformer les déchets.
+- Une fois les déchets transformés, le robot communique aux robots de la couleur suivante pour qu'ils viennent les chercher. 
+- Ils les déplacent sur la colonne de droite pour les déposer.

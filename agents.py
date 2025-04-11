@@ -13,38 +13,41 @@ import mesa
 from objects import Waste
 
 class RobotAgent(mesa.Agent):
-    def __init__(self, model):
+    def __init__(self, unique_id, model, pos, assigned_zone=None):
         super().__init__(model)
         self.knowledge = {} 
         self.inventory = []
         self.distance = 0
+        self.unique_id = unique_id
+        self.pos = pos
+        self.assigned_zone = assigned_zone
 
     def move(self):
-        possible_steps = self.model.grid.get_neighborhood(
-        self.pos, moore=False, include_center=False)
-        allowed_steps = []
-        for pos in possible_steps:
-            cell_contents = self.model.grid.get_cell_list_contents(pos)
+        if not self.assigned_zone:
+            raise ValueError(f"Robot {self.unique_id} n'a pas de zone assignée.")
 
-            if any(isinstance(obj, RobotAgent) for obj in cell_contents): #éviter collision
-                continue
+        x, y = self.pos
+        x_min, x_max, y_min, y_max = self.assigned_zone
 
-            #Chercher l'agent Radioactivity dans la cellule
-            zone = None
-            for agent in cell_contents:
-                #On vérifie que l'agent est une instance de Radioactivity
-                if hasattr(agent, "zone") and agent.__class__.__name__ == "Radioactivity":
-                    zone = agent.zone
-                    break
-            
-            #Vérifier si la zone de la cellule est autorisée pour cet agent
-            if zone in self.allowed_zones:
-                allowed_steps.append(pos)
-                
-        #Effectuer le déplacement vers une case autorisée si disponible
-        if allowed_steps:
-            new_position = self.random.choice(allowed_steps)
-            self.model.grid.move_agent(self, new_position)
+        # Vérifier si le robot doit changer de ligne
+        if not hasattr(self, "direction"):
+            self.direction = 1  # 1 pour aller à droite, -1 pour aller à gauche
+
+        # Déplacement horizontal
+        new_x = x + self.direction
+        if new_x < x_min or new_x > x_max:  # Si on atteint la limite horizontale
+            new_x = x  # Rester sur la même colonne
+            new_y = y + 1 if y + 1 <= y_max else y_min  # Passer à la ligne suivante ou revenir en haut
+            self.direction *= -1  # Changer de direction
+        else:
+            new_y = y
+
+        # Vérifier si la nouvelle position est libre
+        new_pos = (new_x, new_y)
+        cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        if not any(isinstance(obj, RobotAgent) for obj in cell_contents):  # Éviter les collisions
+            self.model.grid.move_agent(self, new_pos)
+            self.distance += 1
 
     def step(self):
         self.step_agent()
@@ -86,8 +89,8 @@ class RobotAgent(mesa.Agent):
         self.knowledge["last_percepts"] = new_percepts
 
 class GreenRobot(RobotAgent):
-    def __init__(self, model,pos):
-        super().__init__(model)
+    def __init__(self, unique_id, model,pos, assigned_zone=None):
+        super().__init__(unique_id, model, pos, assigned_zone)
         self.type = "green"
         self.allowed_zones = ["z1"]
         self.hasTransformed = False
@@ -132,8 +135,8 @@ class GreenRobot(RobotAgent):
         return {"action": "move"}  # Si rien d'autre à faire, continuer à bouger
         
 class YellowRobot(RobotAgent):
-    def __init__(self, model, pos):
-        super().__init__(model)
+    def __init__(self, unique_id, model, pos, assigned_zone=None):
+        super().__init__(unique_id, model, pos, assigned_zone)
         self.type = "yellow" 
         self.allowed_zones = ["z1", "z2"]
         self.hasTransformed = False
@@ -179,10 +182,11 @@ class YellowRobot(RobotAgent):
         return {"action": "move"}  # Si rien d'autre à faire, continuer à bouger
         
 class RedRobot(RobotAgent):
-    def __init__(self, model, pos):
-        super().__init__(model)
+    def __init__(self, unique_id, model, pos, assigned_zone=None):
+        super().__init__(unique_id, model, pos, assigned_zone)
         self.type = "red"  
         self.allowed_zones = ["z1", "z2", "z3"]
+
     
     def deliberate(self, knowledge):
         current_cell = knowledge["percepts"][knowledge["pos"]]
