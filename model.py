@@ -13,7 +13,7 @@ import mesa
 from agents import RobotAgent
 from mesa.datacollection import DataCollector
 from objects import Radioactivity, WasteDisposal, Waste
-from agents import GreenRobot, YellowRobot, RedRobot
+from agents import GreenRobot, YellowRobot, RedRobot, GreenGather, YellowGather, AloneGreen, AloneYellow
 
 class RobotModel(mesa.Model):
     def __init__(self, width=15, height=9, green_waste=4, yellow_waste=4, red_waste=4,
@@ -69,44 +69,78 @@ class RobotModel(mesa.Model):
             self.grid.place_agent(disposal, (self.width - 1, y))
 
     def create_robots(self):
-        zone_width = self.width // 3
         robot_id = 0
+        color_configs = [
+            ("green", self.n_green, GreenRobot, GreenGather, AloneGreen, 0),   # zone gauche (tiers 0)
+            ("yellow", self.n_yellow, YellowRobot, YellowGather, AloneYellow, 1),  # zone centre (tiers 1)
+            ("red", self.n_red + 1, RedRobot, RedRobot, RedRobot, 2),         # zone droite (tiers 2)
+        ]
 
-        # Agents verts : zone 1
-        green_zone_width = zone_width // self.n_green if self.n_green > 0 else zone_width
-        for i in range(self.n_green):
-            x_min = i * green_zone_width
-            x_max = (i + 1) * green_zone_width - 1
-            x = self.random.randrange(x_min, x_max + 1)
-            y = self.random.randrange(0, self.height)
-            robot = GreenRobot(robot_id, self, (x, y), assigned_zone=(x_min, x_max, 0, self.height - 1))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
-            print(f"[DEBUG] Robot vert créé à la position : ({x}, {y}) avec l'ID : {robot_id} et zone assignée : ({x_min}, {x_max})")
-            robot_id += 1
+        for color, count, robot_cls, gather_cls, alone_cls, zone_index in color_configs:
+            if count <= 0:
+                continue
 
-        # Agents jaunes : zones 1 et 2
-        yellow_zone_width = (2 * zone_width) // self.n_yellow if self.n_yellow > 0 else 2 * zone_width
-        for i in range(self.n_yellow):
-            x_min = i * yellow_zone_width
-            x_max = (i + 1) * yellow_zone_width - 1
-            x = self.random.randrange(x_min, x_max + 1)
-            y = self.random.randrange(0, self.height)
-            robot = YellowRobot(robot_id, self, (x, y), assigned_zone=(x_min, x_max, 0, self.height - 1))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
-            print(f"[DEBUG] Robot jaune créé à la position : ({x}, {y}) avec l'ID : {robot_id} et zone assignée : ({x_min}, {x_max})")
-            robot_id += 1
+            zone_width = self.width // 3
+            if color == 'green':
+                x_min = zone_index * zone_width
+                x_max = (zone_index + 1) * zone_width - 1
+            elif color == 'yellow':
+                x_min = zone_index * (zone_width) - 1
+                x_max = (zone_index + 1) * zone_width - 1
+            else:
+                x_min = zone_index * (zone_width) -1
+                x_max = (zone_index + 1) * zone_width - 2
 
-        # Agents rouges : toutes zones
-        for _ in range(self.n_red):
-            x = self.random.randrange(0, self.width)
-            y = self.random.randrange(0, self.height)
-            robot = RedRobot(robot_id, self, (x, y), assigned_zone=(0, self.width - 1, 0, self.height - 1))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
-            print(f"[DEBUG] Robot rouge créé à la position : ({x}, {y}) avec l'ID : {robot_id}")
-            robot_id += 1
+            if count > 1:
+                zone_height = self.height // (count - 1)
+                for i in range(count - 1):
+                    y_min = i * zone_height
+                    y_max = (i + 1) * zone_height - 1 if i < count - 2 else self.height - 1
+                    x = self.random.randrange(x_min, x_max + 1)
+                    y = self.random.randrange(y_min, y_max + 1)
+                    robot = robot_cls(
+                        robot_id,
+                        self,
+                        (x, y),
+                        assigned_zone=(x_min, x_max, y_min, y_max)
+                    )
+                    self.grid.place_agent(robot, (x, y))
+                    self.robots.append(robot)
+                    print(f"[DEBUG] {color.capitalize()}Robot créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                    robot_id += 1
+
+                if color != 'red':
+                    # Ajout du robot Gather
+                    y_min = 0
+                    y_max = self.height - 1
+                    x = x_max
+                    y = self.random.randrange(y_min, y_max + 1)
+                    robot = gather_cls(
+                        robot_id,
+                        self,
+                        (x, y),
+                        assigned_zone=(x_min, x_max, y_min, y_max)
+                    )
+                    self.grid.place_agent(robot, (x, y))
+                    self.robots.append(robot)
+                    print(f"[DEBUG] {color.capitalize()}Gather créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                    robot_id += 1
+
+            elif not ((color == 'red') and (count == 1)):  # un seul robot
+                y_min = 0
+                y_max = self.height - 1
+                x = self.random.randrange(x_min, x_max + 1)
+                y = self.random.randrange(y_min, y_max + 1)
+                robot = alone_cls(
+                    robot_id,
+                    self,
+                    (x, y),
+                    assigned_zone=(x_min, x_max, y_min, y_max)
+                )
+                self.grid.place_agent(robot, (x, y))
+                self.robots.append(robot)
+                print(f"[DEBUG] {color.capitalize()}Robot (unique) créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                robot_id += 1
 
     def add_initial_waste(self):
         zone_width = self.width // 3
