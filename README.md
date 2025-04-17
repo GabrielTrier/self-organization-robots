@@ -103,13 +103,49 @@ Actuellement les robots ne coordonnent pas leurs actions. Ainsi, si il y a plusi
 - Un robot 'chef' qui coordonne les actions des autres robots.
 - Optimiser les déplacements des robots pour minimiser la distance parcourue si ils ont connaissance de la position des déchets. 
 
-## Startégie de collecte
+## Stratégie de collecte
 
 Diviser chaque zone en plusieurs sous-zones et assigner un robot à chaque sous-zone. Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets. On evite les cases déjà visitées par un autre robot.
 - Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets.
 - Une fois qu'un robot a collecté un déchet, il doit se déplacer vers la zone de dépôt pour le déposer.
 - Une fois qu'un robot a déposé un déchet, il doit se déplacer vers sa sous-zone pour continuer à collecter des déchets.
-- Si un robot a visité toutes les cases de sa sous-zone, il le communique aux autres robots. 
-- Une fois toutes les cases de la sous-zone visitées, le robot avec l'id le plus bas doit se déplacer vers la colonne de droite pour transformer les déchets.
 - Une fois les déchets transformés, le robot communique aux robots de la couleur suivante pour qu'ils viennent les chercher. 
 - Ils les déplacent sur la colonne de droite pour les déposer.
+
+### Stratégie de communication
+
+Deux types de messages (performatifs) sont utilisés dans notre système :
+
+1. **REQUEST** : Message de demande qui signale la présence d'un déchet à collecter
+   - Utilisé principalement par les robots jaunes pour signaler aux robots rouges qu'un déchet rouge a été déposé
+   - Contient la position du déchet, son type et l'horodatage du dépôt
+
+2. **DOING** : Message d'information qui signale qu'un robot est en train de traiter un déchet
+   - Utilisé par les robots rouges pour informer les autres robots rouges qu'ils prennent en charge un déchet spécifique
+   - Permet d'éviter que plusieurs robots ne ciblent le même déchet
+   - Contient la position du déchet, son type et la position actuelle du robot émetteur
+
+La stratégie de communication mise en place est la suivante :
+
+1. **Notification de dépôt** : Lorsqu'un robot jaune dépose un déchet rouge transformé, il envoie un message REQUEST à tous les robots rouges pour signaler la présence de ce déchet.
+
+2. **Coordination des robots rouges** : Quand un robot rouge décide de cibler un déchet, il envoie un message DOING aux autres robots rouges. Ce message permet d'éviter que plusieurs robots ne se dirigent vers le même déchet.
+
+3. **Résolution des conflits** : Si plusieurs robots rouges ciblent le même déchet, une règle de priorité est appliquée :
+   - Le robot le plus proche du déchet a la priorité
+   - En cas d'égalité de distance, le robot avec l'ID le plus petit a la priorité
+   - Les robots qui abandonnent un déchet ciblé continuent leur exploration ou cherchent un autre déchet
+
+4. **Mémorisation des informations** : Les robots rouges mémorisent les informations sur les déchets signalés dans leur base de connaissances (`knowledge`) pour les traiter plus tard s'ils ne sont pas disponibles immédiatement.
+
+Cette stratégie de communication permet d'optimiser la collecte des déchets rouges en évitant les déplacements inutiles et en répartissant efficacement le travail entre les robots rouges. Elle contribue significativement à la réduction du nombre d'étapes nécessaires pour nettoyer l'environnement.
+
+### Implémentation technique
+
+Le système de communication est implémenté grâce à :
+- Une classe `MessageService` qui gère l'envoi et la réception des messages
+- Une classe `Mailbox` pour chaque robot qui stocke les messages reçus
+- Une méthode `process_messages()` dans chaque robot qui traite les messages selon leur type
+- Une méthode `send_doing_notification()` qui permet aux robots de signaler leur activité
+
+Les robots verts n'utilisent pas la communication car ils n'ont pas besoin de se coordonner avec d'autres types de robots pour leur tâche de collecte des déchets verts.

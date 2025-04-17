@@ -7,13 +7,8 @@ class MessagePerformative(Enum):
     """MessagePerformative enum class.
     Enumeration containing the possible message performative.
     """
-    PROPOSE = 101
-    ACCEPT = 102
-    COMMIT = 103
-    ASK_WHY = 104
-    ARGUE = 105
-    QUERY_REF = 106
-    INFORM_REF = 107
+    REQUEST = 1
+    DOING = 2
 
     def __str__(self):
         """Returns the name of the enum item.
