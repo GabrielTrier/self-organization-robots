@@ -34,4 +34,5 @@ class Waste(mesa.Agent):
     def __init__(self, model, waste_type):
         super().__init__(model)
         self.waste_type = waste_type  # 'green', 'yellow', or 'red'
+        self.unique_id = None  # Sera défini lors de la création pour identifier ce déchet spécifique
 

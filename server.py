@@ -74,6 +74,28 @@ def StepHistogram(model):
     ax.set_ylabel("Nombre d'étapes")
     solara.FigureMatplotlib(fig)
 
+# Nouveau composant: Affiche le nombre de déchets par couleur
+@solara.component
+def WasteCountChart(model):
+    update_counter.get()
+    fig = Figure()
+    ax = fig.subplots()
+
+    # Récupérer les données du DataCollector
+    df = model.datacollector.get_model_vars_dataframe()
+
+    # Vérifier si des données existent avant d'afficher
+    if not df.empty and all(col in df.columns for col in ["GreenWasteCount", "YellowWasteCount", "RedWasteCount"]):
+        ax.plot(df.index, df["GreenWasteCount"], label="Déchets verts", color="blue")
+        ax.plot(df.index, df["YellowWasteCount"], label="Déchets jaunes", color="gold")
+        ax.plot(df.index, df["RedWasteCount"], label="Déchets rouges", color="red")
+        ax.legend()
+
+    ax.set_xlabel("Itération")
+    ax.set_ylabel("Nombre de déchets")
+    ax.set_title("Évolution du nombre de déchets par couleur")
+    solara.FigureMatplotlib(fig)
+
 @solara.component
 def Metrics_Text(model):
     update_counter.get()
@@ -100,15 +122,15 @@ model_params = {
         "type": "SliderInt",
         "label": "Green Waste:",
         "min": 0,
-        "max": 10,
-        "step": 1,
+        "max": 8,
+        "step": 4,
     },
     "yellow_waste": {
         "type": "SliderInt",
         "label": "Yellow Waste",
         "min": 0,
         "max": 10,
-        "step": 1,
+        "step": 2,
     },
     "red_waste": {
         "type": "SliderInt",
@@ -120,22 +142,22 @@ model_params = {
     "n_green": {
         "type": "SliderInt",
         "label": "Green Agents",
-        "min": 0,
-        "max": 20,
+        "min": 1,
+        "max": 4,
         "step": 1,
     },
     "n_yellow": {
         "type": "SliderInt",
         "label": "Yellow Agents",
-        "min": 0,
-        "max": 20,
+        "min": 1,
+        "max": 4,
         "step": 1,
     },
     "n_red": {
         "type": "SliderInt",
         "label": "Red Agents",
-        "min": 0,
-        "max": 20,
+        "min": 1,
+        "max": 4,
         "step": 1,
     },
 }
@@ -143,13 +165,13 @@ model_params = {
 
 # Création des composants d'affichage
 SpaceGraph = make_space_component(agent_portrayal)
-StepHistogramComponent = make_plot_component("StepHistogram")
+WasteCountComponent = make_plot_component("WasteCountChart")
 DistancePlotComponent = make_plot_component("Metrics_Text")
 
 # Création du Dashboard Solara
 page = SolaraViz(
     model,
-    components=[SpaceGraph, StepHistogram, Metrics_Text],
+    components=[SpaceGraph, WasteCountChart, Metrics_Text],
     model_params=model_params,
     name="Simulation de Robots",
 )

@@ -13,7 +13,10 @@ import mesa
 from agents import RobotAgent
 from mesa.datacollection import DataCollector
 from objects import Radioactivity, WasteDisposal, Waste
-from agents import GreenRobot, YellowRobot, RedRobot
+from agents import GreenRobot, YellowRobot, RedRobot, GreenGather, YellowGather, AloneGreen, AloneYellow
+from MessageService import MessageService
+from Message import Message
+from MessagePerformative import MessagePerformative
 
 class RobotModel(mesa.Model):
     def __init__(self, width=15, height=9, green_waste=4, yellow_waste=4, red_waste=4,
@@ -33,6 +36,8 @@ class RobotModel(mesa.Model):
         self.deposition_step = None
         self.running = True  #Attribut standard de Mesa pour contrôler l'exécution
         
+        self.message_service = MessageService(self, instant_delivery=False) #Communication 
+
         self.setup_zones()
         self.add_initial_waste()
         self.create_robots()
@@ -43,7 +48,10 @@ class RobotModel(mesa.Model):
                 "GreenDistance": lambda m: sum(r.distance for r in m.robots if r.type == "green"),
                 "YellowDistance": lambda m: sum(r.distance for r in m.robots if r.type == "yellow"),
                 "RedDistance": lambda m: sum(r.distance for r in m.robots if r.type == "red"),
-                "RedDepositionStep": lambda m: m.deposition_step if m.deposition_step is not None else None
+                "RedDepositionStep": lambda m: m.deposition_step if m.deposition_step is not None else None,
+                "GreenWasteCount": lambda m: sum(1 for a in m.grid.agents if isinstance(a, Waste) and a.waste_type == "green"),
+                "YellowWasteCount": lambda m: sum(1 for a in m.grid.agents if isinstance(a, Waste) and a.waste_type == "yellow"),
+                "RedWasteCount": lambda m: sum(1 for a in m.grid.agents if isinstance(a, Waste) and a.waste_type == "red")
             }
         )
         # Initial data collection
@@ -69,40 +77,93 @@ class RobotModel(mesa.Model):
             self.grid.place_agent(disposal, (self.width - 1, y))
 
     def create_robots(self):
-        zone_width = self.width // 3
-        
-        #Agents verts : zone 1
-        for _ in range(self.n_green):
-            x = self.random.randrange(0, zone_width)
-            y = self.random.randrange(0, self.height)
-            robot = GreenRobot(self, (x, y))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
-        
-        #Agents jaunes : zones 1 et 2
-        for _ in range(self.n_yellow):
-            x = self.random.randrange(0, 2 * zone_width)
-            y = self.random.randrange(0, self.height)
-            robot = YellowRobot(self, (x, y))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
-        
-        #Agents rouges : toutes zones
-        for _ in range(self.n_red):
-            x = self.random.randrange(0, self.width)
-            y = self.random.randrange(0, self.height)
-            robot = RedRobot(self, (x, y))
-            self.grid.place_agent(robot, (x, y))
-            self.robots.append(robot)
+        robot_id = 0
+        color_configs = [
+            ("green", self.n_green, GreenRobot, GreenGather, AloneGreen, 0),   # zone gauche (tiers 0)
+            ("yellow", self.n_yellow, YellowRobot, YellowGather, AloneYellow, 1),  # zone centre (tiers 1)
+            ("red", self.n_red + 1, RedRobot, RedRobot, RedRobot, 2),         # zone droite (tiers 2)
+        ]
+
+        for color, count, robot_cls, gather_cls, alone_cls, zone_index in color_configs:
+            if count <= 0:
+                continue
+
+            zone_width = self.width // 3
+            if color == 'green':
+                x_min = zone_index * zone_width
+                x_max = (zone_index + 1) * zone_width - 1
+            elif color == 'yellow':
+                x_min = zone_index * (zone_width) - 1
+                x_max = (zone_index + 1) * zone_width - 1
+            else:
+                x_min = zone_index * (zone_width) -1
+                x_max = (zone_index + 1) * zone_width - 2
+
+            if count > 1:
+                zone_height = self.height // (count - 1)
+                for i in range(count - 1):
+                    y_min = i * zone_height
+                    y_max = (i + 1) * zone_height - 1 if i < count - 2 else self.height - 1
+                    x = self.random.randrange(x_min, x_max + 1)
+                    y = self.random.randrange(y_min, y_max + 1)
+                    robot = robot_cls(
+                        robot_id,
+                        self,
+                        (x, y),
+                        assigned_zone=(x_min, x_max, y_min, y_max)
+                    )
+                    ##pour éviter que les robots prennent la dernière colonne (sauf le gather)
+                    robot.ignore_last_column = True
+                    robot.deposit_column = x_max
+                    self.grid.place_agent(robot, (x, y))
+                    self.robots.append(robot)
+                    print(f"[DEBUG] {color.capitalize()}Robot créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                    robot_id += 1
+
+                if color != 'red':
+                    # Ajout du robot Gather
+                    y_min = 0
+                    y_max = self.height - 1
+                    x = x_max
+                    y = self.random.randrange(y_min, y_max + 1)
+                    robot = gather_cls(
+                        robot_id,
+                        self,
+                        (x, y),
+                        assigned_zone=(x_min, x_max, y_min, y_max)
+                    )
+                    self.grid.place_agent(robot, (x, y))
+                    self.robots.append(robot)
+                    print(f"[DEBUG] {color.capitalize()}Gather créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                    robot_id += 1
+
+            elif not ((color == 'red') and (count == 1)):  # un seul robot
+                y_min = 0
+                y_max = self.height - 1
+                x = self.random.randrange(x_min, x_max + 1)
+                y = self.random.randrange(y_min, y_max + 1)
+                robot = alone_cls(
+                    robot_id,
+                    self,
+                    (x, y),
+                    assigned_zone=(x_min, x_max, y_min, y_max)
+                )
+                self.grid.place_agent(robot, (x, y))
+                self.robots.append(robot)
+                print(f"[DEBUG] {color.capitalize()}Robot (unique) créé à ({x}, {y}) | ID : {robot_id} | Zone : ({x_min}, {x_max}, {y_min}, {y_max})")
+                robot_id += 1
 
     def add_initial_waste(self):
         zone_width = self.width // 3
+        waste_id = 0  # ID unique pour chaque déchet
         
         #Zone 1: waste verts
         for _ in range(self.green_waste):
             x = self.random.randrange(0, zone_width)
             y = self.random.randrange(0, self.height)
             waste = Waste(self, "green")
+            waste.unique_id = waste_id  # Assigner un ID unique
+            waste_id += 1
             self.grid.place_agent(waste, (x, y))
         
         #Zone 2: waste jaunes
@@ -110,6 +171,8 @@ class RobotModel(mesa.Model):
             x = self.random.randrange(zone_width, 2 * zone_width)
             y = self.random.randrange(0, self.height)
             waste = Waste(self, "yellow")
+            waste.unique_id = waste_id  # Assigner un ID unique
+            waste_id += 1
             self.grid.place_agent(waste, (x, y))
         
         #Zone 3: waste rouges (en évitant la dernière colonne pour le waste disposal)
@@ -117,6 +180,8 @@ class RobotModel(mesa.Model):
             x = self.random.randrange(2 * zone_width, self.width - 1)
             y = self.random.randrange(0, self.height)
             waste = Waste(self, "red")
+            waste.unique_id = waste_id  # Assigner un ID unique
+            waste_id += 1
             self.grid.place_agent(waste, (x, y))
 
     def do(self, agent, action):
@@ -199,14 +264,52 @@ class RobotModel(mesa.Model):
             #si dépot dans zone de déchets
             if any(hasattr(obj, "zone") and obj.zone == "waste_zone" for obj in cell_contents):
                 agent.inventory.remove(action["waste"])
+                if hasattr(agent, "target_waste"):
+                    agent.target_waste = None
+                    if hasattr(agent, "_last_notified_target"):
+                        agent._last_notified_target = None
             else:
                 waste = Waste(self, action["waste"])
+                waste.unique_id = self.next_waste_id if hasattr(self, "next_waste_id") else 1000 # Assigner un ID unique au déchet
+                self.next_waste_id = waste.unique_id + 1 if hasattr(self, "next_waste_id") else 1001
+                
+                # Marquer ce déchet comme "à ignorer" par l'agent qui l'a déposé
+                agent.last_dropped_waste_id = waste.unique_id
+                
                 self.grid.place_agent(waste, agent.pos)
                 agent.inventory.remove(action["waste"])
+
+                self.notify_waste_drop(agent, action["waste"], agent.pos)
+            
             agent.hasTransformed = False
 
         return self.grid.get_cell_list_contents(agent.pos)
 
+
+    def notify_waste_drop(self, sender_agent, waste_type, position):
+        if waste_type == "red" and sender_agent.type == "yellow":
+            target_type = "red"
+            
+            content = {
+                "waste_pos": position,
+                "waste_type": waste_type,
+                "drop_time": self.step_count
+            }
+            
+            for agent in self.robots:
+                if hasattr(agent, 'type') and agent.type == target_type:
+                    try:
+                        # Have the sender agent send the message directly
+                        message = Message(
+                            sender_agent.get_name(),
+                            agent.get_name(),
+                            MessagePerformative.REQUEST,
+                            content
+                        )
+                        sender_agent.send_message(message)
+                        print(f"[NOTIFY] Agent {sender_agent.get_name()} notified {agent.get_name()} about {waste_type} waste at {position}")
+                    except Exception as e:
+                        print(f"Error sending message: {e}")
 
     def step(self):
         # STOp si tous les déchets ont été éliminés (grille et inventaire)
@@ -221,6 +324,9 @@ class RobotModel(mesa.Model):
             self.running = False  #Stop la simulation       
             return  
 
+        #Distribution des messages entre les agents
+        self.message_service.dispatch_messages()
+    
         for robot in self.robots:        
             robot.step()
 
