@@ -191,7 +191,8 @@ La communication impacte principalement les `RedRobot` :
 
 ### Schémas UML
 
-
+Ci-dessous le schéma UML du projet, incluant les classes de communication, les agents et les objets de l'environnement:
+![img](/img/uml.png)
 
 ### Évaluation
 
@@ -236,4 +237,8 @@ On obtient en moyenne (sur 10 simulations) les résultats suivants:
 
 Ci-dessous l'évolution du nombre de déchets par couleur au cours de la simulation avec cette configuration:
 ![img3](/img/img3.png)
+
+### Conclusion
+
+Les résultats montrent que l'approche avec communication et une stratégie de collecte ciblée améliore la simulation de manière générale. En effet, la stratégie et la communication permettent d'abord de mettre plusieurs agents de la même couleur sur le terrain, ce qui permet d'augmenter le nombre de déchets collectés et déposés. Ensuite, la communication entre les agents permet de réduire le nombre de pas nécessaires pour collecter et déposer les déchets. Enfin, la stratégie de collecte ciblée permet d'optimiser le parcours des agents et donc de réduire la distance parcourue par chaque agent unique. 
 
