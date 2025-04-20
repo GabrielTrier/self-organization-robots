@@ -152,11 +152,12 @@ class RobotAgent(CommunicatingAgent):
                 print(f"[DOING] {self.get_name()} is targeting {waste_type} waste at {waste_pos}")
 
 class GreenRobot(RobotAgent):
-    def __init__(self, unique_id, model,pos, assigned_zone=None):
+    def __init__(self, unique_id, model, pos, assigned_zone=None):
         super().__init__(unique_id, model, pos, assigned_zone)
         self.type = "green"
         self.allowed_zones = ["z1"]
         self.hasAWaste = False
+        self.blocked_steps = 0  # Compteur de blocage
 
     def deliberate(self, knowledge):
         percepts = knowledge["percepts"]
@@ -218,8 +219,101 @@ class GreenRobot(RobotAgent):
         self.get_new_messages()  # Vider la boîte aux lettres sans traiter les messages
         return
 
+    # Override la méthode move de RobotAgent pour gérer les blocages
+    def move(self):
+        if not self.assigned_zone:
+            raise ValueError(f"Robot {self.unique_id} n'a pas de zone assignée.")
+
+        x, y = self.pos
+        x_min, x_max, y_min, y_max = self.assigned_zone
+
+        if not hasattr(self, "direction_x"):
+            self.direction_x = 1  # 1 pour droite, -1 pour gauche
+        if not hasattr(self, "direction_y"):
+            self.direction_y = 1  # 1 pour descendre, -1 pour monter
+
+        # Déplacement horizontal
+        new_x = x + self.direction_x
+        new_y = y
+
+        # S'assurer que new_x reste strictement dans la zone assignée
+        if new_x < x_min or new_x > x_max:
+            # On atteint un bord horizontal : on change de ligne
+            self.direction_x *= -1  # On inverse le sens horizontal
+            new_x = x  # On reste sur la même colonne pour ce tick
+            new_y = y + self.direction_y
+
+            # S'assurer que new_y reste strictement dans la zone assignée
+            if new_y < y_min or new_y > y_max:
+                self.direction_y *= -1
+                new_y = y + self.direction_y
+                
+                # Double vérification que new_y est dans les limites
+                if new_y < y_min or new_y > y_max:
+                    new_y = y  # Rester sur place si toujours hors limites
+
+        # Vérification finale que la position est dans les limites de la grille ET de la zone
+        grid_width, grid_height = self.model.width, self.model.height
+        if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
+            new_x, new_y = x, y
+            self.direction_x *= -1
+            self.direction_y *= -1
+            
+        # Vérification supplémentaire que la position est dans la zone assignée
+        if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
+            new_x, new_y = x, y  # Rester sur place si hors zone
+            print(f"[WARNING] {self.get_name()} tente de sortir de sa zone: pos={new_x,new_y}, zone={x_min,x_max,y_min,y_max}")
+            self.direction_x *= -1
+            self.direction_y *= -1
+
+        new_pos = (new_x, new_y)
+        cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
+        if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
+            # Déplacement effectif, réinitialiser le compteur de blocage
+            self.model.grid.move_agent(self, new_pos)
+            self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps à {self.pos}.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Essayer plusieurs directions alternatives
+                alternatives = []
+                
+                # Option 1: Reculer de 2 cases horizontalement
+                alt_x = max(x_min, min(x_max, x - 2 * self.direction_x))
+                alternatives.append((alt_x, y))
+                
+                # Option 2: Monter d'une case
+                alt_y_up = max(y_min, y - 1)
+                alternatives.append((x, alt_y_up))
+                
+                # Option 3: Descendre d'une case
+                alt_y_down = min(y_max, y + 1)
+                alternatives.append((x, alt_y_down))
+                
+                # Essayer chaque alternative dans l'ordre
+                for alt_pos in alternatives:
+                    # Vérifier que la position est valide (dans la grille et dans la zone)
+                    if (0 <= alt_pos[0] < grid_width and 0 <= alt_pos[1] < grid_height and
+                        x_min <= alt_pos[0] <= x_max and y_min <= alt_pos[1] <= y_max):
+                        alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                        if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                            print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                            self.model.grid.move_agent(self, alt_pos)
+                            self.distance += 1
+                            self.blocked_steps = 0
+                            break
+
+
 class GreenGather(GreenRobot):
-    def __init__(self, unique_id, model,pos, assigned_zone=None):
+    def __init__(self, unique_id, model, pos, assigned_zone=None):
         super().__init__(unique_id, model, pos, assigned_zone)
         self.hasTransformed = False
 
@@ -265,7 +359,7 @@ class GreenGather(GreenRobot):
             raise ValueError(f"Robot {self.unique_id} n'a pas de zone assignée.")
 
         x, y = self.pos
-        _, _, y_min, y_max = self.assigned_zone
+        x_min, x_max, y_min, y_max = self.assigned_zone  # Récupérer toutes les bornes de la zone
 
         if not hasattr(self, "direction_y"):
             self.direction_y = 1  # 1 pour descendre, -1 pour monter
@@ -273,17 +367,63 @@ class GreenGather(GreenRobot):
         # Déplacement uniquement vertical
         new_y = y + self.direction_y
 
-        # Si on atteint un bord vertical, on inverse la direction
+        # S'assurer que new_y reste strictement dans la zone assignée
+        if new_y < y_min or new_y > y_max:
+            self.direction_y *= -1
+            new_y = y + self.direction_y
+            
+            # Double vérification
+            if new_y < y_min or new_y > y_max:
+                new_y = y  # Rester sur place si toujours hors limites
+
+        # Vérification finale que la position est dans les limites de la grille
         grid_height = self.model.height
         if not (0 <= new_y < grid_height):
             new_y = y
             self.direction_y *= -1
+            
+        # Vérification supplémentaire que la position reste dans la colonne assignée
+        if x < x_min or x > x_max:
+            print(f"[CRITICAL] {self.get_name()} hors de sa colonne assignée: x={x}, zone={x_min}-{x_max}")
+            # Corriger la position pour revenir dans la zone
+            x = max(x_min, min(x_max, x))
 
         new_pos = (x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
             self.model.grid.move_agent(self, new_pos)
             self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Inverser complètement la direction verticale et essayer de se déplacer
+                self.direction_y *= -1
+                alt_y = y + self.direction_y
+                
+                # Vérifier que la position alternative est valide (dans la zone et la grille)
+                if y_min <= alt_y <= y_max and 0 <= alt_y < grid_height:
+                    alt_pos = (x, alt_y)
+                    alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                    if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                        print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                        self.model.grid.move_agent(self, alt_pos)
+                        self.distance += 1
+                        self.blocked_steps = 0
+                    else:
+                        # Si la première alternative échoue, essayer de s'arrêter temporairement
+                        print(f"[INFO] {self.get_name()} reste sur place et attend.")
+                        # Ne rien faire pendant ce tour pour laisser les autres se déplacer
+                        # Le compteur continue d'augmenter pour une nouvelle tentative au prochain tour
+
+
 class AloneGreen(GreenGather):
     def move(self):
         if not self.assigned_zone:
@@ -307,23 +447,70 @@ class AloneGreen(GreenGather):
             new_x = x  # On reste sur la même colonne pour ce tick
             new_y = y + self.direction_y
 
-            # Si on atteint un bord vertical, on inverse aussi la direction verticale
+            # S'assurer que new_y reste strictement dans la zone assignée
             if new_y < y_min or new_y > y_max:
                 self.direction_y *= -1
                 new_y = y + self.direction_y
+                
+                # Double vérification
+                if new_y < y_min or new_y > y_max:
+                    new_y = y  # Rester sur place si toujours hors limites
 
-        # Vérifier que la nouvelle position est dans les limites de la grille
         grid_width, grid_height = self.model.width, self.model.height
         if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
             new_x, new_y = x, y
             self.direction_x *= -1
             self.direction_y *= -1
+            
+        if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
+            new_x, new_y = x, y  # Rester sur place si hors zone
+            print(f"[WARNING] {self.get_name()} tente de sortir de sa zone: pos={new_x,new_y}, zone={x_min,x_max,y_min,y_max}")
+            self.direction_x *= -1
+            self.direction_y *= -1
 
         new_pos = (new_x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
             self.model.grid.move_agent(self, new_pos)
             self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Essayer plusieurs directions alternatives
+                alternatives = []
+                
+                # Option 1: Reculer de 2 cases horizontalement
+                alt_x = max(x_min, min(x_max, x - 2 * self.direction_x))
+                alternatives.append((alt_x, y))
+                
+                # Option 2: Monter d'une case
+                alt_y_up = max(y_min, y - 1)
+                alternatives.append((x, alt_y_up))
+                
+                # Option 3: Descendre d'une case
+                alt_y_down = min(y_max, y + 1)
+                alternatives.append((x, alt_y_down))
+                
+                # Essayer chaque alternative dans l'ordre
+                for alt_pos in alternatives:
+                    # Vérifier que la position est valide (dans la grille et dans la zone)
+                    if (0 <= alt_pos[0] < grid_width and 0 <= alt_pos[1] < grid_height and
+                        x_min <= alt_pos[0] <= x_max and y_min <= alt_pos[1] <= y_max):
+                        alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                        if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                            print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                            self.model.grid.move_agent(self, alt_pos)
+                            self.distance += 1
+                            self.blocked_steps = 0
+                            break
 
 class YellowRobot(RobotAgent):
     def __init__(self, unique_id, model, pos, assigned_zone=None):
@@ -332,6 +519,12 @@ class YellowRobot(RobotAgent):
         self.type = "yellow"
         self.allowed_zones = ["z2"]
         self.hasAWaste = False
+        self.blocked_steps = 0  # Compteur de blocage
+        # Vérifier que la position initiale est dans la zone assignée
+        if assigned_zone:
+            x_min, x_max, y_min, y_max = assigned_zone
+            if not (x_min <= pos[0] <= x_max and y_min <= pos[1] <= y_max):
+                print(f"[ERROR] YellowRobot_{unique_id} initialisé hors de sa zone: pos={pos}, zone={assigned_zone}")
 
     def deliberate(self, knowledge):
         percepts = knowledge["percepts"]
@@ -353,6 +546,12 @@ class YellowRobot(RobotAgent):
             else:
                 # Vérifier si on peut se déplacer vers l'est
                 east_pos = (pos[0] + 1, pos[1])
+                # Vérifier que east_pos est dans ma zone assignée
+                if self.assigned_zone:
+                    x_min, x_max, y_min, y_max = self.assigned_zone
+                    if not (x_min <= east_pos[0] <= x_max):
+                        return {"action": "move_vertical"}  # Si hors zone, déplacement vertical
+
                 if east_pos[0] < self.model.width:
                     east_cell = self.model.grid.get_cell_list_contents(east_pos)
                     if any(isinstance(obj, RobotAgent) for obj in east_cell):
@@ -372,6 +571,12 @@ class YellowRobot(RobotAgent):
 
         # Si je n'ai pas de déchet et qu'il n'y en a pas sur ma case, je cherche autour
         for nearby_pos, agents in percepts.items():
+            # Vérifier que la case voisine est dans ma zone assignée
+            if self.assigned_zone:
+                x_min, x_max, y_min, y_max = self.assigned_zone
+                if not (x_min <= nearby_pos[0] <= x_max and y_min <= nearby_pos[1] <= y_max):
+                    continue  # Ignorer les cases hors zone
+
             if hasattr(self, "ignore_last_column") and nearby_pos[0] == self.deposit_column:
                 continue
             if nearby_pos != pos:
@@ -387,11 +592,132 @@ class YellowRobot(RobotAgent):
 
         return {"action": "move"}
 
+    # Override la méthode move de RobotAgent pour gérer les blocages
+    def move(self):
+        if not self.assigned_zone:
+            raise ValueError(f"Robot {self.unique_id} n'a pas de zone assignée.")
+
+        x, y = self.pos
+        x_min, x_max, y_min, y_max = self.assigned_zone
+
+        # Vérifier que la position actuelle est dans la zone assignée
+        if not (x_min <= x <= x_max and y_min <= y <= y_max):
+            print(f"[ERROR] {self.get_name()} est hors de sa zone: pos={x,y}, zone={x_min,x_max,y_min,y_max}")
+            # Tenter de corriger la position
+            corrected_x = max(x_min, min(x_max, x))
+            corrected_y = max(y_min, min(y_max, y))
+            if (corrected_x, corrected_y) != (x, y):
+                print(f"[CORRECTION] {self.get_name()} repositionné à {corrected_x, corrected_y}")
+                self.model.grid.move_agent(self, (corrected_x, corrected_y))
+                return  # Arrêter ici après correction
+
+        if not hasattr(self, "direction_x"):
+            self.direction_x = 1  # 1 pour droite, -1 pour gauche
+        if not hasattr(self, "direction_y"):
+            self.direction_y = 1  # 1 pour descendre, -1 pour monter
+
+        # Calcul de la nouvelle position (horizontal)
+        new_x = x + self.direction_x
+        new_y = y
+
+        # Vérification stricte des limites horizontales de la zone
+        if new_x < x_min or new_x > x_max:
+            # On atteint un bord horizontal : on change de ligne
+            self.direction_x *= -1  # On inverse le sens horizontal
+            new_x = x  # On reste sur la même colonne pour ce tick
+            new_y = y + self.direction_y
+
+            # Vérification stricte des limites verticales de la zone
+            if new_y < y_min or new_y > y_max:
+                self.direction_y *= -1
+                new_y = y + self.direction_y
+                
+                # Double vérification
+                if new_y < y_min or new_y > y_max:
+                    new_y = y  # Rester sur place si toujours hors limites
+
+        # Vérification que la position est dans les limites de la grille
+        grid_width, grid_height = self.model.width, self.model.height
+        if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
+            new_x, new_y = x, y
+            self.direction_x *= -1
+            self.direction_y *= -1
+            
+        # Vérification FINALE de sécurité pour éviter toute sortie de zone
+        if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
+            print(f"[WARNING] {self.get_name()} tente de sortir de sa zone: pos={new_x,new_y}, zone={x_min,x_max,y_min,y_max}")
+            new_x = max(x_min, min(x_max, x))  # Forcer à rester dans la plage x
+            new_y = max(y_min, min(y_max, y))  # Forcer à rester dans la plage y
+            self.direction_x *= -1
+            self.direction_y *= -1
+
+        # Vérification finale que la nouvelle position est différente de la position actuelle
+        if (new_x, new_y) == (x, y):
+            # Essayer d'autres directions au lieu de rester immobile
+            directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]  # Est, Ouest, Sud, Nord
+            for dx, dy in directions:
+                test_x, test_y = x + dx, y + dy
+                if (x_min <= test_x <= x_max and y_min <= test_y <= y_max and 
+                    0 <= test_x < grid_width and 0 <= test_y < grid_height):
+                    new_x, new_y = test_x, test_y
+                    break
+
+        new_pos = (new_x, new_y)
+        cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
+        if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
+            # Déplacement effectif, réinitialiser le compteur de blocage
+            self.model.grid.move_agent(self, new_pos)
+            self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps à {self.pos}.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Essayer plusieurs directions alternatives
+                alternatives = []
+                
+                # Option 1: Reculer de 2 cases horizontalement (dans la zone)
+                alt_x = max(x_min, min(x_max, x - 2 * self.direction_x))
+                alternatives.append((alt_x, y))
+                
+                # Option 2: Monter d'une case (dans la zone)
+                alt_y_up = max(y_min, min(y_max, y - 1))
+                alternatives.append((x, alt_y_up))
+                
+                # Option 3: Descendre d'une case (dans la zone)
+                alt_y_down = max(y_min, min(y_max, y + 1))
+                alternatives.append((x, alt_y_down))
+                
+                # Essayer chaque alternative dans l'ordre
+                for alt_pos in alternatives:
+                    # Vérification rigoureuse que la position est valide
+                    if (0 <= alt_pos[0] < grid_width and 0 <= alt_pos[1] < grid_height and
+                        x_min <= alt_pos[0] <= x_max and y_min <= alt_pos[1] <= y_max):
+                        alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                        if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                            print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                            self.model.grid.move_agent(self, alt_pos)
+                            self.distance += 1
+                            self.blocked_steps = 0
+                            break
+
+
 class YellowGather(YellowRobot):
     def __init__(self, unique_id, model, pos, assigned_zone=None):
         super().__init__(unique_id, model, pos, assigned_zone)
         self._CommunicatingAgent__name = f"YellowGather_{unique_id}"
         self.hasTransformed = False
+        # Vérifier que la position initiale est correcte pour un YellowGather (doit être sur une colonne fixe)
+        if assigned_zone:
+            x_min, x_max, _, _ = assigned_zone
+            if x_min != x_max:
+                print(f"[WARNING] YellowGather devrait être sur une colonne fixe, mais la zone est {assigned_zone}")
     
     def deliberate(self, knowledge):
         current_cell = knowledge["percepts"][knowledge["pos"]]
@@ -435,30 +761,85 @@ class YellowGather(YellowRobot):
             raise ValueError(f"Robot {self.unique_id} n'a pas de zone assignée.")
 
         x, y = self.pos
-        _, _, y_min, y_max = self.assigned_zone
+        x_min, x_max, y_min, y_max = self.assigned_zone
+        
+        # Vérifier que la position actuelle est dans la zone assignée
+        if not (x_min <= x <= x_max and y_min <= y <= y_max):
+            print(f"[ERROR] {self.get_name()} est hors de sa zone: pos={x,y}, zone={x_min,x_max,y_min,y_max}")
+            # Tenter de corriger la position
+            corrected_x = max(x_min, min(x_max, x))
+            corrected_y = max(y_min, min(y_max, y))
+            if (corrected_x, corrected_y) != (x, y):
+                print(f"[CORRECTION] {self.get_name()} repositionné à {corrected_x, corrected_y}")
+                self.model.grid.move_agent(self, (corrected_x, corrected_y))
+                return
+
+        # Pour YellowGather, x est fixe (colonne assignée)
+        if x < x_min or x > x_max:
+            print(f"[CRITICAL] {self.get_name()} hors de sa colonne assignée: x={x}, zone={x_min}-{x_max}")
+            # Corriger la position pour revenir dans la colonne correcte
+            x = max(x_min, min(x_max, x))
+            self.model.grid.move_agent(self, (x, y))
+            return
 
         if not hasattr(self, "direction_y"):
             self.direction_y = 1  # 1 pour descendre, -1 pour monter
 
-        # Déplacement uniquement vertical
         new_y = y + self.direction_y
 
-        # Si on atteint un bord vertical, on inverse la direction
         if new_y < y_min or new_y > y_max:
             self.direction_y *= -1
             new_y = y + self.direction_y
+            
+            # Double vérification
+            if new_y < y_min or new_y > y_max:
+                new_y = y  # Rester sur place si toujours hors limites
 
-        # Vérifier que la nouvelle position est dans les limites de la grille
         grid_height = self.model.height
         if not (0 <= new_y < grid_height):
             new_y = y
             self.direction_y *= -1
+            
+        if new_y < y_min or new_y > y_max:
+            print(f"[WARNING] {self.get_name()} tente de sortir des limites verticales: new_y={new_y}, limites={y_min}-{y_max}")
+            new_y = max(y_min, min(y_max, y))
+            self.direction_y *= -1
 
         new_pos = (x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
             self.model.grid.move_agent(self, new_pos)
             self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Inverser complètement la direction verticale et essayer de se déplacer
+                self.direction_y *= -1
+                alt_y = y + self.direction_y
+                
+                # Vérifier que la position alternative est valide (dans la zone et la grille)
+                if y_min <= alt_y <= y_max and 0 <= alt_y < grid_height:
+                    alt_pos = (x, alt_y)
+                    alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                    if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                        print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                        self.model.grid.move_agent(self, alt_pos)
+                        self.distance += 1
+                        self.blocked_steps = 0
+                    else:
+                        # Si la première alternative échoue, essayer de s'arrêter temporairement
+                        print(f"[INFO] {self.get_name()} reste sur place et attend.")
+                        # Ne rien faire pendant ce tour pour laisser les autres se déplacer
+                        # Le compteur continue d'augmenter pour une nouvelle tentative au prochain tour
+
 
 class AloneYellow(YellowGather):
     def __init__(self, unique_id, model, pos, assigned_zone=None):
@@ -508,12 +889,22 @@ class AloneYellow(YellowGather):
         x, y = self.pos
         x_min, x_max, y_min, y_max = self.assigned_zone
 
+        # Vérifier que la position actuelle est dans la zone assignée
+        if not (x_min <= x <= x_max and y_min <= y <= y_max):
+            print(f"[ERROR] {self.get_name()} est hors de sa zone: pos={x,y}, zone={x_min,x_max,y_min,y_max}")
+            # Tenter de corriger la position
+            corrected_x = max(x_min, min(x_max, x))
+            corrected_y = max(y_min, min(y_max, y))
+            if (corrected_x, corrected_y) != (x, y):
+                print(f"[CORRECTION] {self.get_name()} repositionné à {corrected_x, corrected_y}")
+                self.model.grid.move_agent(self, (corrected_x, corrected_y))
+                return  
+
         if not hasattr(self, "direction_x"):
             self.direction_x = 1  # 1 pour droite, -1 pour gauche
         if not hasattr(self, "direction_y"):
             self.direction_y = 1  # 1 pour descendre, -1 pour monter
 
-        # Déplacement horizontal
         new_x = x + self.direction_x
         new_y = y
 
@@ -523,23 +914,89 @@ class AloneYellow(YellowGather):
             new_x = x  # On reste sur la même colonne pour ce tick
             new_y = y + self.direction_y
 
-            # Si on atteint un bord vertical, on inverse aussi la direction verticale
             if new_y < y_min or new_y > y_max:
                 self.direction_y *= -1
                 new_y = y + self.direction_y
+                
+                # Double vérification pour s'assurer que la nouvelle position reste dans la zone
+                if new_y < y_min or new_y > y_max:
+                    new_y = y  # Rester sur place si toujours hors limites
 
-        # Vérifier que la nouvelle position est dans les limites de la grille
         grid_width, grid_height = self.model.width, self.model.height
         if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
             new_x, new_y = x, y
             self.direction_x *= -1
             self.direction_y *= -1
 
+        if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
+            print(f"[WARNING] {self.get_name()} tente de sortir de sa zone: pos={new_x,new_y}, zone={x_min,x_max,y_min,y_max}")
+            new_x = max(x_min, min(x_max, x))  # Forcer à rester dans la plage x
+            new_y = max(y_min, min(y_max, y))  # Forcer à rester dans la plage y
+            self.direction_x *= -1
+            self.direction_y *= -1
+
+        # Vérification finale que la nouvelle position est différente de la position actuelle
+        if (new_x, new_y) == (x, y):
+            # Essayer d'autres directions au lieu de rester immobile
+            directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]  # Est, Ouest, Sud, Nord
+            for dx, dy in directions:
+                test_x, test_y = x + dx, y + dy
+                if (x_min <= test_x <= x_max and y_min <= test_y <= y_max and 
+                    0 <= test_x < grid_width and 0 <= test_y < grid_height):
+                    new_x, new_y = test_x, test_y
+                    break
+
         new_pos = (new_x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
+        
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
             self.model.grid.move_agent(self, new_pos)
             self.distance += 1
+            self.blocked_steps = 0
+        else:
+            # Blocage détecté, incrémenter le compteur
+            self.blocked_steps += 1
+            print(f"[INFO] {self.get_name()} bloqué depuis {self.blocked_steps} steps à {self.pos}.")
+
+            # Si bloqué depuis plus de 5 steps, tenter un mouvement alternatif
+            if self.blocked_steps > 5:
+                print(f"[INFO] {self.get_name()} tente un mouvement alternatif.")
+                
+                # Essayer plusieurs directions alternatives, toutes strictement dans la zone
+                alternatives = []
+                
+                # Option 1: Reculer de 2 cases horizontalement (dans la zone)
+                alt_x = max(x_min, min(x_max, x - 2 * self.direction_x))
+                alternatives.append((alt_x, y))
+                
+                # Option 2: Monter d'une case (dans la zone)
+                alt_y_up = max(y_min, min(y_max, y - 1))
+                alternatives.append((x, alt_y_up))
+                
+                # Option 3: Descendre d'une case (dans la zone)
+                alt_y_down = max(y_min, min(y_max, y + 1))
+                alternatives.append((x, alt_y_down))
+                
+                # Ajout d'options diagonales (toujours dans la zone)
+                alt_diag1 = (max(x_min, min(x_max, x - 1)), max(y_min, min(y_max, y - 1)))
+                alt_diag2 = (max(x_min, min(x_max, x - 1)), max(y_min, min(y_max, y + 1)))
+                alt_diag3 = (max(x_min, min(x_max, x + 1)), max(y_min, min(y_max, y - 1)))
+                alt_diag4 = (max(x_min, min(x_max, x + 1)), max(y_min, min(y_max, y + 1)))
+                alternatives.extend([alt_diag1, alt_diag2, alt_diag3, alt_diag4])
+                
+                # Essayer chaque alternative dans l'ordre
+                for alt_pos in alternatives:
+                    # Vérification rigoureuse que la position est valide
+                    if (alt_pos != (x, y) and  # Différent de la position actuelle
+                        0 <= alt_pos[0] < grid_width and 0 <= alt_pos[1] < grid_height and
+                        x_min <= alt_pos[0] <= x_max and y_min <= alt_pos[1] <= y_max):
+                        alt_cell_contents = self.model.grid.get_cell_list_contents(alt_pos)
+                        if not any(isinstance(obj, RobotAgent) for obj in alt_cell_contents):
+                            print(f"[INFO] {self.get_name()} se déplace en position alternative {alt_pos}.")
+                            self.model.grid.move_agent(self, alt_pos)
+                            self.distance += 1
+                            self.blocked_steps = 0
+                            break
 
 class RedRobot(RobotAgent):
     def __init__(self, unique_id, model, pos, assigned_zone=None):
@@ -668,7 +1125,36 @@ class RedRobot(RobotAgent):
             else:
                 return {"action": "move_east"}  # Aller vers la zone de dépôt
 
-        # PRIORITÉ 5: Déplacement par défaut
+        # PRIORITÉ 5: Déplacement par défaut - MODIFICATION POUR DÉPLACEMENT ALÉATOIRE
+        # Vérifier s'il y a plusieurs robots rouges
+        red_robots = [agent for agent in self.model.robots 
+                     if isinstance(agent, RedRobot)]
+        
+        if len(red_robots) > 1:
+            # Mouvement aléatoire quand il y a plusieurs robots rouges
+            import random
+            possible_moves = []
+            x, y = pos
+            zone_width = self.model.width // 3
+            last_yellow_column = 2*zone_width-1
+            
+            # Générer toutes les positions adjacentes possibles
+            for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.model.width and 0 <= ny < self.model.height):
+                    if nx >= 2*zone_width or nx == last_yellow_column:
+                        possible_moves.append((nx, ny))
+            
+            # Choisir une position aléatoire parmi celles disponibles
+            if possible_moves:
+                target_pos = random.choice(possible_moves)
+                cell_contents = self.model.grid.get_cell_list_contents(target_pos)
+                
+                # Vérifier que la position n'est pas occupée par un autre robot
+                if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
+                    return {"action": "move", "target": target_pos}
+        
+        # Fallback: mouvement standard si le mouvement aléatoire échoue
         return {"action": "move"}
 
     def process_messages(self):
