@@ -55,6 +55,14 @@ class RobotAgent(CommunicatingAgent):
                 self.direction_y *= -1
                 new_y = y + self.direction_y
 
+        # Vérifier que la nouvelle position est dans les limites de la grille
+        grid_width, grid_height = self.model.width, self.model.height
+        if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
+            # Position hors limites, rester sur place et inverser la direction
+            new_x, new_y = x, y
+            self.direction_x *= -1
+            self.direction_y *= -1
+
         new_pos = (new_x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
@@ -266,9 +274,10 @@ class GreenGather(GreenRobot):
         new_y = y + self.direction_y
 
         # Si on atteint un bord vertical, on inverse la direction
-        if new_y < y_min or new_y > y_max:
+        grid_height = self.model.height
+        if not (0 <= new_y < grid_height):
+            new_y = y
             self.direction_y *= -1
-            new_y = y + self.direction_y
 
         new_pos = (x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
@@ -302,6 +311,13 @@ class AloneGreen(GreenGather):
             if new_y < y_min or new_y > y_max:
                 self.direction_y *= -1
                 new_y = y + self.direction_y
+
+        # Vérifier que la nouvelle position est dans les limites de la grille
+        grid_width, grid_height = self.model.width, self.model.height
+        if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
+            new_x, new_y = x, y
+            self.direction_x *= -1
+            self.direction_y *= -1
 
         new_pos = (new_x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
@@ -432,6 +448,12 @@ class YellowGather(YellowRobot):
             self.direction_y *= -1
             new_y = y + self.direction_y
 
+        # Vérifier que la nouvelle position est dans les limites de la grille
+        grid_height = self.model.height
+        if not (0 <= new_y < grid_height):
+            new_y = y
+            self.direction_y *= -1
+
         new_pos = (x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
         if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
@@ -505,6 +527,13 @@ class AloneYellow(YellowGather):
             if new_y < y_min or new_y > y_max:
                 self.direction_y *= -1
                 new_y = y + self.direction_y
+
+        # Vérifier que la nouvelle position est dans les limites de la grille
+        grid_width, grid_height = self.model.width, self.model.height
+        if not (0 <= new_x < grid_width and 0 <= new_y < grid_height):
+            new_x, new_y = x, y
+            self.direction_x *= -1
+            self.direction_y *= -1
 
         new_pos = (new_x, new_y)
         cell_contents = self.model.grid.get_cell_list_contents(new_pos)
