@@ -71,6 +71,9 @@ Le fichier contient les classes des objets statiques de l'environnement:
 
 ---
 
+### Schéma UML
+
+
 ### 4. Simulation
 
 La simulation est lancée dans le fichier `server.py` fournissant une interface graphique pour visualiser la simulation. Pour lancer la simulation, il suffit d'exécuter le fichier `server.py`:
@@ -96,56 +99,141 @@ Paramètres de la simulation:
 
 ---
 
-## Perspectives
-
-Actuellement les robots ne coordonnent pas leurs actions. Ainsi, si il y a plusieurs robots dans la même zone, il y a des cas de figure où la simulation ne peut pas se terminer. Pour la suite du projet, il faudra implémenter un système de communication entre les robots pour qu'ils puissent coordonner leurs actions et éviter les blocages. On pourrait penser à: 
-- Les robots partagent leurs connaissances. 
-- Un robot 'chef' qui coordonne les actions des autres robots.
-- Optimiser les déplacements des robots pour minimiser la distance parcourue si ils ont connaissance de la position des déchets. 
-
 ## Stratégie de collecte
 
-Diviser chaque zone en plusieurs sous-zones et assigner un robot à chaque sous-zone. Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets. On evite les cases déjà visitées par un autre robot.
-- Chaque robot doit se déplacer dans sa sous-zone pour récupérer les informations sur les déchets.
-- Une fois qu'un robot a collecté un déchet, il doit se déplacer vers la zone de dépôt pour le déposer.
-- Une fois qu'un robot a déposé un déchet, il doit se déplacer vers sa sous-zone pour continuer à collecter des déchets.
-- Une fois les déchets transformés, le robot communique aux robots de la couleur suivante pour qu'ils viennent les chercher. 
-- Ils les déplacent sur la colonne de droite pour les déposer.
+## Stratégie sans communication
 
-### Stratégie de communication
+Cette section détaille la stratégie de collecte et de transformation des déchets mise en œuvre lorsque les robots n'ont pas la capacité de communiquer entre eux. La coordination est implicite, basée sur des rôles et des zones d'opération distincts, en particulier lorsqu'il y a plusieurs robots d'une même couleur (vert ou jaune).
 
-Deux types de messages (performatifs) sont utilisés dans notre système :
+### Découpage des zones et rôles spécifiques (Cas Multi-Agents)
 
-1. **REQUEST** : Message de demande qui signale la présence d'un déchet à collecter
-   - Utilisé principalement par les robots jaunes pour signaler aux robots rouges qu'un déchet rouge a été déposé
-   - Contient la position du déchet, son type et l'horodatage du dépôt
+L'environnement de la grille (9x15) est divisé en trois zones verticales principales : z1 (vert), z2 (jaune), z3 (rouge). La gestion des zones z1 et z2 s'adapte au nombre de robots :
 
-2. **DOING** : Message d'information qui signale qu'un robot est en train de traiter un déchet
-   - Utilisé par les robots rouges pour informer les autres robots rouges qu'ils prennent en charge un déchet spécifique
-   - Permet d'éviter que plusieurs robots ne ciblent le même déchet
-   - Contient la position du déchet, son type et la position actuelle du robot émetteur
+- **Un seul robot (`AloneGreen`, `AloneYellow`)**:
+    - **Zone**: Le robot est responsable de l'intégralité de sa zone principale (z1 ou z2).
+    - **Rôle**: Il explore toute la zone (mouvement en serpentin), collecte les déchets de sa couleur, les transforme lui-même (2 verts -> 1 jaune ou 2 jaunes -> 1 rouge), se déplace vers la colonne la plus à droite de sa zone, et y dépose le déchet *transformé*.
 
-La stratégie de communication mise en place est la suivante :
+- **Plusieurs robots (`GreenGather`, `YellowGather` - N > 1)**:
+    - **Division des Rôles et Zones**:
+        - **1 Robot "Transformeur"**: Un des robots est assigné à la colonne la plus à droite de la zone principale (colonne `width // 3 - 1` pour z1, colonne `2 * width // 3 - 1` pour z2).
+            - **Rôle**: Ce robot ne collecte pas dans la zone principale. Il patrouille verticalement dans sa colonne assignée. Sa tâche est de ramasser les déchets *non transformés* déposés par les autres robots, de les transformer (2 verts -> 1 jaune ou 2 jaunes -> 1 rouge), puis de déposer le déchet *transformé* dans cette même colonne.
+        - **N-1 Robots "Collecteurs"**: Les autres N-1 robots se partagent le reste de la zone principale (colonnes 0 à `width // 3 - 2` pour z1, colonnes `width // 3` à `2 * width // 3 - 2` pour z2). Cette aire est divisée horizontalement en N-1 sous-zones (bandes).
+            - **Rôle**: Chaque collecteur explore sa sous-zone assignée (mouvement en serpentin ou similaire). Dès qu'il ramasse un déchet de sa couleur, il *ne le transforme pas*. Il se dirige directement vers la colonne du "Transformeur" (la colonne la plus à droite de la zone principale) et y dépose le déchet *non transformé*.
 
-1. **Notification de dépôt** : Lorsqu'un robot jaune dépose un déchet rouge transformé, il envoie un message REQUEST à tous les robots rouges pour signaler la présence de ce déchet.
+### Types d’agents et comportements détaillés
 
-2. **Coordination des robots rouges** : Quand un robot rouge décide de cibler un déchet, il envoie un message DOING aux autres robots rouges. Ce message permet d'éviter que plusieurs robots ne se dirigent vers le même déchet.
+- **`AloneGreen` / `AloneYellow`**:
+    - **Comportement**: Implémentent le cycle complet : exploration (serpentin via `move`), collecte (`deliberate`), transformation (`deliberate` retourne `transform`), déplacement vers la colonne de droite (`move_east`), et dépôt du déchet transformé (`deliberate` retourne `drop`).
+- **`GreenGather` / `YellowGather` (selon leur rôle assigné)**:
+    - **Robot "Transformeur" (1 par zone)**:
+        - **Zone Assignée**: La colonne la plus à droite de z1 ou z2.
+        - **Comportement `move`**: Déplacement principalement vertical dans cette colonne.
+        - **Comportement `deliberate`**: Cherche les déchets non transformés de sa couleur sur sa case. S'il en trouve deux, il retourne `{"action": "pickup", ...}` pour les ramasser (potentiellement sur plusieurs étapes). Une fois deux déchets en inventaire, il retourne `{"action": "transform", ...}`. Ensuite, il retourne `{"action": "drop", ...}` pour déposer le déchet transformé sur sa case (si vide).
+    - **Robots "Collecteurs" (N-1 par zone)**:
+        - **Zone Assignée**: Une sous-zone horizontale dans la partie gauche de z1 ou z2.
+        - **Comportement `move`**: Exploration de type serpentin ou similaire dans la sous-zone assignée.
+        - **Comportement `deliberate`**: Cherche un déchet de sa couleur sur sa case. S'il en trouve un et que l'inventaire est vide, il retourne `{"action": "pickup", ...}`. S'il a un déchet non transformé en inventaire, il retourne `{"action": "move_east"}` pour se diriger vers la colonne du Transformeur. Arrivé dans cette colonne, il retourne `{"action": "drop", ...}` pour déposer le déchet *non transformé*.
+- **`RedRobot`**:
+    - **Rôle**: Collecter les déchets rouges (initiaux en z3 ou ceux transformés et déposés par les `YellowRobot` Transformeurs dans la colonne `2 * width // 3 - 1`) et les amener à la zone de dépôt finale (dernière colonne).
+    - **Comportement spécifique (sans communication)**: Déplacement aléatoire pour chercher les déchets rouges. Se dirige vers la zone de dépôt (`move_east`) lorsqu'il transporte un déchet.
 
-3. **Résolution des conflits** : Si plusieurs robots rouges ciblent le même déchet, une règle de priorité est appliquée :
-   - Le robot le plus proche du déchet a la priorité
-   - En cas d'égalité de distance, le robot avec l'ID le plus petit a la priorité
-   - Les robots qui abandonnent un déchet ciblé continuent leur exploration ou cherchent un autre déchet
+### Déplacement
 
-4. **Mémorisation des informations** : Les robots rouges mémorisent les informations sur les déchets signalés dans leur base de connaissances (`knowledge`) pour les traiter plus tard s'ils ne sont pas disponibles immédiatement.
+- **`AloneGreen` / `AloneYellow` / Robots Collecteurs (`Gather`)**: Leur méthode `move` implémente un déplacement en serpentin ou exploratoire pour couvrir leur zone/sous-zone assignée.
+- **Robot Transformeur (`Gather`)**: Sa méthode `move` implémente un déplacement principalement vertical dans la colonne la plus à droite de z1 ou z2.
+- **`RedRobot` (sans communication)**: Déplacement aléatoire contrôlé par défaut. `deliberate` peut initier un `move_east` ciblé.
+- **Évitement**: Tous les robots vérifient l'occupation de la case cible avant de bouger.
 
-Cette stratégie de communication permet d'optimiser la collecte des déchets rouges en évitant les déplacements inutiles et en répartissant efficacement le travail entre les robots rouges. Elle contribue significativement à la réduction du nombre d'étapes nécessaires pour nettoyer l'environnement.
 
-### Implémentation technique
+---
 
-Le système de communication est implémenté grâce à :
-- Une classe `MessageService` qui gère l'envoi et la réception des messages
-- Une classe `Mailbox` pour chaque robot qui stocke les messages reçus
-- Une méthode `process_messages()` dans chaque robot qui traite les messages selon leur type
-- Une méthode `send_doing_notification()` qui permet aux robots de signaler leur activité
+## Stratégie avec communication
 
-Les robots verts n'utilisent pas la communication car ils n'ont pas besoin de se coordonner avec d'autres types de robots pour leur tâche de collecte des déchets verts.
+Cette section décrit la stratégie améliorée où les robots rouges utilisent la communication pour coordonner plus efficacement la collecte des déchets rouges déposés par les robots Transformeurs jaunes.
+
+### Ajouts par rapport à la version sans communication
+
+La communication impacte principalement les `RedRobot` :
+- **Notification de dépôt**: Le `RobotModel` notifie les `RedRobot` (`REQUEST`) lorsqu'un Transformeur `YellowGather` (ou `AloneYellow`) dépose un déchet rouge dans la colonne `2 * width // 3 - 1`.
+- **Prise en charge ciblée**: Les `RedRobot` ciblent un déchet spécifique (`self.target_waste`) et s'y dirigent (pathfinding simple).
+- **Résolution de conflits (`DOING`)**: Un `RedRobot` ciblant un déchet notifie les autres. Le plus proche (ou plus petit ID) garde la cible, les autres abandonnent.
+- **Partage d'informations**: Évite les efforts redondants.
+- **Mémorisation**: Mémorisation des déchets signalés mais non ciblés (`knowledge["waste_locations"]`).
+
+### Types de messages et Performatifs
+
+- **`REQUEST`**: Diffusé par `RobotModel` lors d'un dépôt de déchet rouge par un `YellowRobot` (Transformeur ou Alone). Contient `{"waste_pos": (x, y), "waste_type": "red"}`. Destiné aux `RedRobot`.
+- **`DOING`**: Envoyé par un `RedRobot` prenant en charge un déchet. Contient `{"waste_pos": (x, y), "waste_type": "red", "agent_pos": self.pos}`. Destiné aux autres `RedRobot`.
+
+### Processus de communication et Coordination (`RedRobot`)
+
+1.  **Notification (`REQUEST`)**: Dépôt Rouge -> `RobotModel.notify_waste_drop` -> `MessageService` -> `REQUEST` aux `RedRobot`.
+2.  **Traitement (`RedRobot.process_messages`)**:
+    - Traite `DOING` (résolution conflits via distance/ID). Met à jour `self.target_waste`.
+    - Traite `REQUEST` (si pas de cible et vide) -> stocke dans `knowledge["waste_locations"]`.
+3.  **Décision (`RedRobot.deliberate`)**:
+    - Priorités: Pickup local -> Suivre `target_waste` (envoyer `DOING` si besoin) -> Choisir cible depuis `knowledge["waste_locations"]` (définir `target_waste`, envoyer `DOING`) -> Déposer si plein et zone dépôt -> Exploration.
+4.  **Notification d'intention (`RedRobot.send_doing_notification`)**: Envoie `DOING`.
+
+### Implémentation Technique
+
+- **`CommunicatingAgent`**, **`Mailbox`**, **`MessageService`**, **`Message`**: Infrastructure.
+- **`RedRobot.process_messages`**: Logique de traitement.
+- **`RedRobot.send_doing_notification`**: Envoi `DOING`.
+- **`RobotModel.notify_waste_drop`**: Déclencheur `REQUEST`.
+- **`RedRobot.deliberate`**: Intègre ciblage et pathfinding simple.
+
+### Cas Particuliers
+
+- Seuls les `RedRobot` traitent/envoient activement des messages.
+- Les `YellowRobot` (Transformeurs ou Alone) déclenchent les `REQUEST` par leurs dépôts.
+- Les `GreenRobot` sont exclus.
+
+### Schémas UML
+
+
+
+### Évaluation
+
+1. 1 agent de chaque couleur
+Pour la configuartion suivante:
+- 4 déchets verts, 4 déchets jaunes, 4 déchets rouges
+- 1 GreenRobot, 1 YellowRobot, 3 RedRobot
+
+On obtient en moyenne (sur 10 simulations) les résultats suivants:
+- 105 steps en moyenne
+- GreenRobot: 187 de distance moyenne
+- YellowRobot: 172 de distance moyenne
+- RedRobot: 142 de distance moyenne
+
+Ci-dessous l'évolution du nombre de déchets par couleur au cours de la simulation avec cette configuration:
+![img1](/img/img1.png)
+
+2. 2 agents de chaque couleur
+Pour la configuartion suivante:
+- 4 déchets verts, 4 déchets jaunes, 4 déchets rouges
+- 2 GreenRobot, 2 YellowRobot, 2 RedRobot
+
+On obtient en moyenne (sur 10 simulations) les résultats suivants:
+- 108 steps en moyenne
+- GreenRobot: 384 de distance moyenne en cumul
+- YellowRobot: 359 de distance moyenne en cumul
+- RedRobot: 203 de distance moyenne en cumul
+
+Ci-dessous l'évolution du nombre de déchets par couleur au cours de la simulation avec cette configuration:
+![img2](/img/img2.png)
+
+3. 3 agents de chaque couleur
+Pour la configuartion suivante:
+- 4 déchets verts, 4 déchets jaunes, 4 déchets rouges
+- 3 GreenRobot, 3 YellowRobot, 3 RedRobot
+
+On obtient en moyenne (sur 10 simulations) les résultats suivants:
+- 79 steps en moyenne
+- GreenRobot: 399 de distance moyenne en cumul
+- YellowRobot: 381 de distance moyenne en cumul
+- RedRobot: 209 de distance moyenne en cumul
+
+Ci-dessous l'évolution du nombre de déchets par couleur au cours de la simulation avec cette configuration:
+![img3](/img/img3.png)
+
