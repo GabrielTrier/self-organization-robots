@@ -156,39 +156,10 @@ class GreenRobot(RobotAgent):
         inventory = knowledge["inventory"]
         pos = knowledge["pos"]
         zone_width = knowledge["zone_width"]
-
-        # PRIORITÉ 1: Vérifier D'ABORD la case actuelle pour un déchet
-        green_wastes = [obj for obj in current_cell if hasattr(obj, "waste_type") 
-                       and obj.waste_type == "green" 
-                       and obj.unique_id != self.last_dropped_waste_id]
         
-        # Ne considérer qu'il y a un déchet valide que si la liste filtrée n'est pas vide
-        valid_waste_in_cell = len(green_wastes) > 0
-        
-        if valid_waste_in_cell and pos[0] != zone_width - 1:
-            if len([w for w in inventory if w == "green"]) < 1:
-                self.hasAWaste = True
-                return {"action": "pickup", "waste": "green"}
-
-        # PRIORITÉ 2 : ne cibler que les déchets qui ne sont PAS dans la colonne de dépôt
-        if len([w for w in inventory if w == "green"]) < 1:  # Only if inventory not full
-            for nearby_pos, agents in percepts.items():
-                if hasattr(self, "ignore_last_column") and nearby_pos[0] == self.deposit_column:
-                    continue
-                if nearby_pos != pos:  # Don't check current cell again
-                    for agent in agents:
-                        if hasattr(agent, "waste_type") and agent.waste_type == "green":
-                            # Check if the position is in allowed zone
-                            cell_contents = self.model.grid.get_cell_list_contents(nearby_pos)
-                            allowed = False
-                            for obj in cell_contents:
-                                if hasattr(obj, "zone") and obj.zone in self.allowed_zones:
-                                    allowed = True
-                            if allowed:
-                                return {"action": "move", "target": nearby_pos}
-
-        # PRIORITÉ 3: Gérer le dépôt si on a un déchet
-        if self.hasAWaste:
+        # Si j'ai déjà un déchet vert, je le dépose directement sans chercher d'autres déchets
+        if len([w for w in inventory if w == "green"]) > 0:
+            self.hasAWaste = True
             if pos[0] == zone_width - 1:  # À l'extrémité de z1
                 # Vérifier s'il y a des déchets dans la cellule actuelle
                 cell_has_waste = any(hasattr(obj, "waste_type") for obj in current_cell)
@@ -198,13 +169,44 @@ class GreenRobot(RobotAgent):
                 else:
                     return {"action": "move_vertical"}
             else:
+                # Vérifier si on peut se déplacer vers l'est
+                east_pos = (pos[0] + 1, pos[1])
+                if east_pos[0] < self.model.width:
+                    east_cell = self.model.grid.get_cell_list_contents(east_pos)
+                    if any(isinstance(obj, RobotAgent) for obj in east_cell):
+                        return {"action": "move_vertical"}  # Alternative si bloqué
                 return {"action": "move_east"}
+        
+        # Si je n'ai pas de déchet, j'essaie d'en ramasser un
+        green_wastes = [obj for obj in current_cell if hasattr(obj, "waste_type") 
+                    and obj.waste_type == "green" 
+                    and obj.unique_id != self.last_dropped_waste_id]
+        
+        valid_waste_in_cell = len(green_wastes) > 0
+        
+        if valid_waste_in_cell and pos[0] != zone_width - 1:
+            self.hasAWaste = True
+            return {"action": "pickup", "waste": "green"}
 
-        return {"action": "move"}  # Si rien d'autre à faire, continuer à bouger
+        # Si je n'ai pas de déchet et qu'il n'y en a pas sur ma case, je cherche autour
+        for nearby_pos, agents in percepts.items():
+            if hasattr(self, "ignore_last_column") and nearby_pos[0] == self.deposit_column:
+                continue
+            if nearby_pos != pos:
+                for agent in agents:
+                    if hasattr(agent, "waste_type") and agent.waste_type == "green":
+                        cell_contents = self.model.grid.get_cell_list_contents(nearby_pos)
+                        allowed = False
+                        for obj in cell_contents:
+                            if hasattr(obj, "zone") and obj.zone in self.allowed_zones:
+                                allowed = True
+                        if allowed:
+                            return {"action": "move", "target": nearby_pos}
+
+        return {"action": "move"}
 
     # Surcharger pour les robots verts pour ne pas traiter les messages
     def process_messages(self):
-        # Les robots verts n'utilisent pas la communication, donc on ignore tous les messages
         self.get_new_messages()  # Vider la boîte aux lettres sans traiter les messages
         return
 
@@ -322,39 +324,10 @@ class YellowRobot(RobotAgent):
         pos = knowledge["pos"]
         zone_width = knowledge["zone_width"]
         
-        # PRIORITÉ 1: Vérifier d'abord la case actuelle pour un déchet
-        yellow_wastes = [obj for obj in current_cell if hasattr(obj, "waste_type") 
-                        and obj.waste_type == "yellow" 
-                        and obj.unique_id != self.last_dropped_waste_id]
-        
-        # Ne considérer qu'il y a un déchet valide que si la liste filtrée n'est pas vide
-        valid_waste_in_cell = len(yellow_wastes) > 0
-        
-        if valid_waste_in_cell and pos[0] != zone_width*2 - 1:
-            if len([w for w in inventory if w == "yellow"]) < 1:
-                self.hasAWaste = True
-                return {"action": "pickup", "waste": "yellow"}
-
-        # PRIORITÉ 2: Ensuite, vérifier les cases voisines
-        if len([w for w in inventory if w == "yellow"]) < 1:  
-            for nearby_pos, agents in percepts.items():
-                if hasattr(self, "ignore_last_column") and nearby_pos[0] == self.deposit_column:
-                    continue
-                if nearby_pos != pos:  
-                    for agent in agents:
-                        if hasattr(agent, "waste_type") and agent.waste_type == "yellow":
-                            cell_contents = self.model.grid.get_cell_list_contents(nearby_pos)
-                            allowed = False
-                            for obj in cell_contents:
-                                if hasattr(obj, "zone") and obj.zone in self.allowed_zones:
-                                    allowed = True
-                            if allowed:
-                                return {"action": "move", "target": nearby_pos}
-
-        # PRIORITÉ 3: Gérer le dépôt si on a un déchet
-        if self.hasAWaste:
+        # Si j'ai déjà un déchet jaune, je le dépose directement sans chercher d'autres déchets
+        if len([w for w in inventory if w == "yellow"]) > 0:
+            self.hasAWaste = True
             if pos[0] >= zone_width * 2 - 1:  # À l'extrémité de z2
-                # Vérifier s'il y a des déchets dans la cellule actuelle
                 cell_has_waste = any(hasattr(obj, "waste_type") for obj in current_cell)
                 if not cell_has_waste:
                     self.hasAWaste = False
@@ -362,9 +335,41 @@ class YellowRobot(RobotAgent):
                 else:
                     return {"action": "move_vertical"}
             else:
+                # Vérifier si on peut se déplacer vers l'est
+                east_pos = (pos[0] + 1, pos[1])
+                if east_pos[0] < self.model.width:
+                    east_cell = self.model.grid.get_cell_list_contents(east_pos)
+                    if any(isinstance(obj, RobotAgent) for obj in east_cell):
+                        return {"action": "move_vertical"}  # Alternative si bloqué
                 return {"action": "move_east"}
+        
+        # Si je n'ai pas de déchet, j'essaie d'en ramasser un
+        yellow_wastes = [obj for obj in current_cell if hasattr(obj, "waste_type") 
+                        and obj.waste_type == "yellow" 
+                        and obj.unique_id != self.last_dropped_waste_id]
+        
+        valid_waste_in_cell = len(yellow_wastes) > 0
+        
+        if valid_waste_in_cell and pos[0] != zone_width*2 - 1:
+            self.hasAWaste = True
+            return {"action": "pickup", "waste": "yellow"}
 
-        return {"action": "move"}  
+        # Si je n'ai pas de déchet et qu'il n'y en a pas sur ma case, je cherche autour
+        for nearby_pos, agents in percepts.items():
+            if hasattr(self, "ignore_last_column") and nearby_pos[0] == self.deposit_column:
+                continue
+            if nearby_pos != pos:
+                for agent in agents:
+                    if hasattr(agent, "waste_type") and agent.waste_type == "yellow":
+                        cell_contents = self.model.grid.get_cell_list_contents(nearby_pos)
+                        allowed = False
+                        for obj in cell_contents:
+                            if hasattr(obj, "zone") and obj.zone in self.allowed_zones:
+                                allowed = True
+                        if allowed:
+                            return {"action": "move", "target": nearby_pos}
+
+        return {"action": "move"}
 
 class YellowGather(YellowRobot):
     def __init__(self, unique_id, model, pos, assigned_zone=None):

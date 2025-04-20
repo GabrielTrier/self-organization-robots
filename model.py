@@ -222,46 +222,14 @@ class RobotModel(mesa.Model):
                 possible_positions.append((x, y - 1))
             if y + 1 < self.height:
                 possible_positions.append((x, y + 1))
-            
-            moved = False
             for new_pos in possible_positions:
                 cell_contents = self.grid.get_cell_list_contents(new_pos)
                 if not any(hasattr(obj, "waste_type") for obj in cell_contents) and not any(isinstance(obj, RobotAgent) for obj in cell_contents):
                     agent.distance += 1
                     self.grid.move_agent(agent, new_pos)
-                    moved = True
                     break
-            
-            if not moved:
-                for new_pos in possible_positions:
-                    cell_contents = self.grid.get_cell_list_contents(new_pos)
-                    if not any(isinstance(obj, RobotAgent) for obj in cell_contents):
-                        agent.distance += 1
-                        self.grid.move_agent(agent, new_pos)
-                        break
 
         elif action["action"] == "pickup":
-            waste_type = action["waste"]
-    
-            # Vérifier si l'agent a déjà transformé des déchets et ne devrait pas en ramasser d'autres
-            if hasattr(agent, "hasTransformed") and agent.hasTransformed:
-                return self.grid.get_cell_list_contents(agent.pos)
-            
-            # Vérifier la limite de l'inventaire selon le type de robot et de déchet
-            inventory_count = len([w for w in agent.inventory if w == waste_type])
-            max_inventory = 1  # Par défaut, un robot peut porter 1 déchet
-            
-            # Les robots Gather et Alone peuvent porter jusqu'à 2 déchets de leur type pour transformer
-            if (agent.type == "green" and waste_type == "green" and 
-                ("GreenGather" in agent.__class__.__name__ or "AloneGreen" in agent.__class__.__name__)):
-                max_inventory = 2
-            elif (agent.type == "yellow" and waste_type == "yellow" and 
-                ("YellowGather" in agent.__class__.__name__ or "AloneYellow" in agent.__class__.__name__)):
-                max_inventory = 2
-            
-            if inventory_count >= max_inventory:
-                return self.grid.get_cell_list_contents(agent.pos)
-
             current_cell = self.grid.get_cell_list_contents(agent.pos)
             for obj in current_cell:
                 if hasattr(obj, "waste_type") and obj.waste_type == action["waste"]:
